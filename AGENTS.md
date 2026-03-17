@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 2: Graph Signal Processing Engine
-- Active task: Implement adaptive Phase 2 position sizing that uses more of the 20% drawdown budget without leaving Phase 2
-- Next step: Add `risk_budget_utilization` and drawdown-aware scaling after signal generation, then verify it before moving to tiered entries
+- Active task: Add a two-tier Phase 2 entry system so moderate residual deviations can contribute during thin months
+- Next step: Implement `tier2_fraction` and `tier2_size_fraction`, verify the new signal generation path, and then expand the constrained sweep
 
 ## Tasks
 1. Set up data ingestion using yfinance

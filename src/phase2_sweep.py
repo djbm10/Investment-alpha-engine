@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pandas as pd
 
-from .backtest import run_walk_forward_backtest
+from .backtest import run_walk_forward_backtest, scale_signals_to_risk_budget
 from .config_loader import PipelineConfig, load_config
 from .database import PostgresStore
 from .graph_engine import apply_signal_rules, compute_graph_signals
@@ -52,6 +52,7 @@ def run_phase2_sweep(config_path: str | Path) -> Phase2SweepResult:
                 "sigma_scales": config.phase2_sweep.sigma_scales,
                 "min_weights": config.phase2_sweep.min_weights,
                 "zscore_lookbacks": config.phase2_sweep.zscore_lookbacks,
+                "risk_budget_utilizations": config.phase2_sweep.risk_budget_utilizations,
                 "signal_thresholds": config.phase2_sweep.signal_thresholds,
             }
         },
@@ -98,6 +99,7 @@ def _evaluate_candidates(price_history: pd.DataFrame, config: PipelineConfig) ->
             config.phase2_sweep.sigma_scales,
             config.phase2_sweep.min_weights,
             config.phase2_sweep.zscore_lookbacks,
+            config.phase2_sweep.risk_budget_utilizations,
         )
     )
 
@@ -108,6 +110,7 @@ def _evaluate_candidates(price_history: pd.DataFrame, config: PipelineConfig) ->
         sigma_scale,
         min_weight,
         zscore_lookback,
+        risk_budget_utilization,
     ) in structural_candidates:
         structural_config = replace(
             config.phase2,
@@ -117,6 +120,7 @@ def _evaluate_candidates(price_history: pd.DataFrame, config: PipelineConfig) ->
             sigma_scale=sigma_scale,
             min_weight=min_weight,
             zscore_lookback=zscore_lookback,
+            risk_budget_utilization=risk_budget_utilization,
             signal_threshold=base_threshold,
         )
         structural_signals = compute_graph_signals(price_history, config.tickers, structural_config)
@@ -124,12 +128,16 @@ def _evaluate_candidates(price_history: pd.DataFrame, config: PipelineConfig) ->
         for threshold in thresholds:
             candidate_config = replace(structural_config, signal_threshold=threshold)
             candidate_signals = apply_signal_rules(structural_signals, candidate_config)
+            scaling_result = scale_signals_to_risk_budget(candidate_signals, candidate_config)
             backtest_result = run_walk_forward_backtest(
-                candidate_signals,
+                scaling_result.scaled_signals,
                 candidate_config,
                 run_id=f"sweep-{uuid4()}",
             )
             summary_metrics = backtest_result.summary_metrics.copy()
+            summary_metrics["baseline_max_drawdown"] = scaling_result.baseline_max_drawdown
+            summary_metrics["target_max_drawdown"] = scaling_result.target_max_drawdown
+            summary_metrics["position_scale_factor"] = scaling_result.scale_factor
             summary_metrics["mean_edge_density"] = float(structural_signals["edge_density"].mean())
             summary_metrics["median_edge_density"] = float(structural_signals["edge_density"].median())
             rows.append(summary_metrics)

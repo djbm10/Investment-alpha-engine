@@ -52,6 +52,8 @@ phase2:
   signal_threshold: 2.8
   full_size_zscore: 3.0
   max_position_size: 0.20
+  risk_budget_utilization: 0.5
+  max_drawdown_limit: 0.20
   enforce_dollar_neutral: false
   max_holding_days: 10
   stop_loss: 0.05
@@ -69,4 +71,5 @@ phase2_sweep:
   sigma_scales: [1.0]
   min_weights: [0.1, 0.2, 0.3]
   zscore_lookbacks: [60, 75, 90]
+  risk_budget_utilizations: [0.3, 0.5, 0.7]
   signal_thresholds: [2.5, 2.8, 3.0]

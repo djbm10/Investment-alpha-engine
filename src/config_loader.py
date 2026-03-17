@@ -53,6 +53,8 @@ class Phase2Config:
     signal_threshold: float
     full_size_zscore: float
     max_position_size: float
+    risk_budget_utilization: float
+    max_drawdown_limit: float
     enforce_dollar_neutral: bool
     max_holding_days: int
     stop_loss: float
@@ -72,6 +74,7 @@ class Phase2SweepConfig:
     sigma_scales: list[float]
     min_weights: list[float]
     zscore_lookbacks: list[int]
+    risk_budget_utilizations: list[float]
     signal_thresholds: list[float]
 
 
@@ -132,6 +135,8 @@ def load_config(config_path: str | Path) -> PipelineConfig:
         signal_threshold=float(data["phase2"]["signal_threshold"]),
         full_size_zscore=float(data["phase2"]["full_size_zscore"]),
         max_position_size=float(data["phase2"]["max_position_size"]),
+        risk_budget_utilization=float(data["phase2"].get("risk_budget_utilization", 0.5)),
+        max_drawdown_limit=float(data["phase2"].get("max_drawdown_limit", 0.20)),
         enforce_dollar_neutral=bool(data["phase2"].get("enforce_dollar_neutral", False)),
         max_holding_days=int(data["phase2"]["max_holding_days"]),
         stop_loss=float(data["phase2"]["stop_loss"]),
@@ -194,5 +199,9 @@ def _load_phase2_sweep_config(data: dict[str, object], phase2: Phase2Config) -> 
         sigma_scales=[float(value) for value in data.get("sigma_scales", [phase2.sigma_scale])],
         min_weights=[float(value) for value in data.get("min_weights", [phase2.min_weight])],
         zscore_lookbacks=[int(value) for value in data.get("zscore_lookbacks", [phase2.zscore_lookback])],
+        risk_budget_utilizations=[
+            float(value)
+            for value in data.get("risk_budget_utilizations", [phase2.risk_budget_utilization])
+        ],
         signal_thresholds=[float(value) for value in data.get("signal_thresholds", [phase2.signal_threshold])],
     )

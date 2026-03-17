@@ -28,6 +28,8 @@ def test_compute_graph_signals_produces_residuals_and_positions() -> None:
         signal_threshold=1.5,
         full_size_zscore=3.0,
         max_position_size=0.2,
+        risk_budget_utilization=0.5,
+        max_drawdown_limit=0.20,
         enforce_dollar_neutral=False,
         max_holding_days=10,
         stop_loss=0.05,

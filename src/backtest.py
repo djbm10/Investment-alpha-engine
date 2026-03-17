@@ -17,6 +17,14 @@ class BacktestResult:
     summary_metrics: dict[str, object]
 
 
+@dataclass(frozen=True)
+class RiskBudgetScalingResult:
+    scaled_signals: pd.DataFrame
+    baseline_max_drawdown: float | None
+    target_max_drawdown: float
+    scale_factor: float
+
+
 def run_walk_forward_backtest(
     daily_signals: pd.DataFrame,
     config: Phase2Config,
@@ -139,6 +147,33 @@ def run_walk_forward_backtest(
         trade_log=trade_log,
         monthly_results=monthly_results,
         summary_metrics=summary_metrics,
+    )
+
+
+def scale_signals_to_risk_budget(
+    daily_signals: pd.DataFrame,
+    config: Phase2Config,
+) -> RiskBudgetScalingResult:
+    preview_result = run_walk_forward_backtest(daily_signals, config, run_id="risk-budget-preview")
+    observed_drawdown = preview_result.summary_metrics.get("max_drawdown")
+    target_drawdown = config.risk_budget_utilization * config.max_drawdown_limit
+
+    if observed_drawdown is None or observed_drawdown <= 0:
+        return RiskBudgetScalingResult(
+            scaled_signals=daily_signals.copy(),
+            baseline_max_drawdown=observed_drawdown,
+            target_max_drawdown=target_drawdown,
+            scale_factor=1.0,
+        )
+
+    scale_factor = target_drawdown / observed_drawdown
+    scaled_signals = daily_signals.copy()
+    scaled_signals["target_position"] = scaled_signals["target_position"] * scale_factor
+    return RiskBudgetScalingResult(
+        scaled_signals=scaled_signals,
+        baseline_max_drawdown=float(observed_drawdown),
+        target_max_drawdown=target_drawdown,
+        scale_factor=float(scale_factor),
     )
 
 
@@ -293,6 +328,8 @@ def _build_summary_metrics(
         "zscore_lookback": config.zscore_lookback,
         "signal_threshold": config.signal_threshold,
         "max_position_size": config.max_position_size,
+        "risk_budget_utilization": config.risk_budget_utilization,
+        "max_drawdown_limit": config.max_drawdown_limit,
         "enforce_dollar_neutral": config.enforce_dollar_neutral,
         "total_signals": int((daily_signals["signal_direction"] != 0).sum()),
         "total_trades": int(len(trade_log)),

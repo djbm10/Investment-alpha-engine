@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from .backtest import BacktestResult, run_walk_forward_backtest
+from .backtest import BacktestResult, run_walk_forward_backtest, scale_signals_to_risk_budget
 from .config_loader import config_to_dict, load_config
 from .database import Phase2RunSummary, PostgresStore
 from .graph_engine import compute_graph_signals
@@ -56,15 +56,24 @@ def run_phase2_pipeline(config_path: str | Path) -> Phase2Result:
     )
 
         daily_signals = compute_graph_signals(price_history, config.tickers, config.phase2)
-        backtest_result = run_walk_forward_backtest(daily_signals, config.phase2, run_id)
-        output_paths = _save_phase2_outputs(config.paths.processed_dir, run_id, daily_signals, backtest_result)
+        scaling_result = scale_signals_to_risk_budget(daily_signals, config.phase2)
+        scaled_signals = scaling_result.scaled_signals
+        backtest_result = run_walk_forward_backtest(scaled_signals, config.phase2, run_id)
+        backtest_result.summary_metrics.update(
+            {
+                "baseline_max_drawdown": scaling_result.baseline_max_drawdown,
+                "target_max_drawdown": scaling_result.target_max_drawdown,
+                "position_scale_factor": scaling_result.scale_factor,
+            }
+        )
+        output_paths = _save_phase2_outputs(config.paths.processed_dir, run_id, scaled_signals, backtest_result)
 
         completed_at = datetime.now(timezone.utc)
         store.persist_phase2_run(
             run_id=run_id,
             config_snapshot=config_to_dict(config),
             summary_metrics=backtest_result.summary_metrics,
-            daily_signals=daily_signals,
+            daily_signals=scaled_signals,
             trade_log=backtest_result.trade_log,
             monthly_results=backtest_result.monthly_results,
             started_at=started_at,
