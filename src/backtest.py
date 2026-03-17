@@ -6,7 +6,8 @@ from uuid import uuid4
 import numpy as np
 import pandas as pd
 
-from .config_loader import Phase2Config
+from .config_loader import Phase2Config, Phase3Config
+from .graph_engine import apply_signal_rules
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,45 @@ class RiskBudgetScalingResult:
     baseline_max_drawdown: float | None
     target_max_drawdown: float
     scale_factor: float
+
+
+def apply_phase3_regime_overlay(
+    daily_signals: pd.DataFrame,
+    phase2_config: Phase2Config,
+    phase3_config: Phase3Config,
+    regime_states: dict[pd.Timestamp, str],
+    freeze_dates: set[pd.Timestamp] | None = None,
+) -> pd.DataFrame:
+    if daily_signals.empty:
+        return daily_signals.copy()
+
+    freeze_dates = freeze_dates or set()
+    overlaid = daily_signals.copy()
+    overlaid["phase3_regime"] = overlaid["date"].map(
+        lambda value: regime_states.get(pd.Timestamp(value), "STABLE")
+    )
+    if "regime_threshold_multiplier" not in overlaid.columns:
+        overlaid["regime_threshold_multiplier"] = 1.0
+    if "regime_position_scale" not in overlaid.columns:
+        overlaid["regime_position_scale"] = 1.0
+    if "allow_new_entries" not in overlaid.columns:
+        overlaid["allow_new_entries"] = True
+
+    transition_mask = overlaid["phase3_regime"] == "TRANSITIONING"
+    freeze_mask = overlaid["date"].isin(freeze_dates)
+    if not freeze_dates and phase3_config.new_regime_freeze_days == 0:
+        freeze_mask = freeze_mask | (overlaid["phase3_regime"] == "NEW_REGIME")
+
+    overlaid.loc[transition_mask, "regime_threshold_multiplier"] = (
+        overlaid.loc[transition_mask, "regime_threshold_multiplier"].astype(float)
+        * phase3_config.transition_threshold_mult
+    )
+    overlaid.loc[transition_mask, "regime_position_scale"] = (
+        overlaid.loc[transition_mask, "regime_position_scale"].astype(float)
+        * phase3_config.transition_position_scale
+    )
+    overlaid.loc[freeze_mask, "allow_new_entries"] = False
+    return apply_signal_rules(overlaid, phase2_config)
 
 
 def run_walk_forward_backtest(
@@ -318,6 +358,7 @@ def _build_summary_metrics(
     )
 
     sharpe_ratio = _annualized_sharpe(oos_daily_results["portfolio_return"], config.annualization_days)
+    annualized_return = _annualized_return(oos_daily_results["portfolio_return"], config.annualization_days)
     max_drawdown = _max_drawdown(oos_daily_results["portfolio_return"])
     win_rate = _win_rate(trade_log)
     profit_factor = _profit_factor(trade_log)
@@ -360,6 +401,7 @@ def _build_summary_metrics(
         "total_signals": int((daily_signals["signal_direction"] != 0).sum()),
         "total_trades": int(len(trade_log)),
         "sharpe_ratio": sharpe_ratio,
+        "annualized_return": annualized_return,
         "max_drawdown": max_drawdown,
         "win_rate": win_rate,
         "profit_factor": profit_factor,
@@ -379,6 +421,16 @@ def _annualized_sharpe(returns: pd.Series, annualization_days: int) -> float | N
     if volatility == 0 or pd.isna(volatility):
         return None
     return float((returns.mean() / volatility) * np.sqrt(annualization_days))
+
+
+def _annualized_return(returns: pd.Series, annualization_days: int) -> float | None:
+    if returns.empty:
+        return None
+    periods = len(returns)
+    cumulative_return = float((1.0 + returns).prod())
+    if periods <= 0 or cumulative_return <= 0:
+        return None
+    return float(cumulative_return ** (annualization_days / periods) - 1.0)
 
 
 def _max_drawdown(returns: pd.Series) -> float | None:

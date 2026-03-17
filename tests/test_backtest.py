@@ -1,8 +1,7 @@
 import pandas as pd
 
-from src.backtest import run_walk_forward_backtest
-from src.backtest import scale_signals_to_risk_budget
-from src.config_loader import Phase2Config
+from src.backtest import apply_phase3_regime_overlay, run_walk_forward_backtest, scale_signals_to_risk_budget
+from src.config_loader import Phase2Config, Phase3Config
 
 
 def test_walk_forward_backtest_returns_summary_and_logs() -> None:
@@ -68,6 +67,7 @@ def test_walk_forward_backtest_returns_summary_and_logs() -> None:
     assert result.summary_metrics["total_signals"] > 0
     assert result.summary_metrics["total_trades"] >= 0
     assert "sharpe_ratio" in result.summary_metrics
+    assert "annualized_return" in result.summary_metrics
     assert result.summary_metrics["corr_floor"] == 0.30
     assert result.summary_metrics["density_floor"] == 0.40
 
@@ -361,3 +361,82 @@ def test_profitable_month_fraction_excludes_flat_inactive_months() -> None:
     assert bool(february["active_month"]) is False
     assert result.summary_metrics["profitable_month_fraction"] == 1.0
     assert result.summary_metrics["active_out_of_sample_months"] == 1
+
+
+def test_apply_phase3_regime_overlay_reduces_and_freezes_entries() -> None:
+    daily_signals = pd.DataFrame(
+        [
+            {
+                "date": pd.Timestamp("2024-01-02"),
+                "ticker": "XLK",
+                "zscore": -3.0,
+                "regime_threshold_multiplier": 1.0,
+                "regime_position_scale": 1.0,
+                "allow_new_entries": True,
+            },
+            {
+                "date": pd.Timestamp("2024-01-03"),
+                "ticker": "XLK",
+                "zscore": -3.0,
+                "regime_threshold_multiplier": 1.0,
+                "regime_position_scale": 1.0,
+                "allow_new_entries": True,
+            },
+        ]
+    )
+    phase2_config = Phase2Config(
+        lookback_window=60,
+        diffusion_alpha=0.05,
+        diffusion_steps=3,
+        sigma_scale=1.0,
+        min_weight=0.1,
+        zscore_lookback=60,
+        signal_threshold=2.0,
+        tier2_fraction=0.65,
+        tier2_size_fraction=0.5,
+        full_size_zscore=3.0,
+        max_position_size=0.2,
+        risk_budget_utilization=0.3,
+        max_drawdown_limit=0.20,
+        enforce_dollar_neutral=False,
+        max_holding_days=9,
+        stop_loss=0.05,
+        min_training_months=12,
+        annualization_days=252,
+        commission_bps=0.0,
+        bid_ask_bps=2.0,
+        market_impact_bps=2.0,
+        slippage_bps=1.0,
+        tier2_enabled=False,
+        corr_floor=0.30,
+        density_floor=0.30,
+        node_corr_floor=0.20,
+    )
+    phase3_config = Phase3Config(
+        rolling_window=60,
+        wasserstein_lookback=20,
+        transition_threshold_sigma=1.5,
+        new_regime_threshold_sigma=2.5,
+        transition_position_scale=0.5,
+        transition_threshold_mult=1.25,
+        transition_lookback_cap=30,
+        new_regime_freeze_days=0,
+        emergency_recalib_days=5,
+        emergency_lookback=20,
+    )
+
+    overlaid = apply_phase3_regime_overlay(
+        daily_signals,
+        phase2_config,
+        phase3_config,
+        {
+            pd.Timestamp("2024-01-02"): "TRANSITIONING",
+            pd.Timestamp("2024-01-03"): "NEW_REGIME",
+        },
+        freeze_dates={pd.Timestamp("2024-01-03")},
+    )
+
+    transition_row = overlaid.loc[overlaid["date"] == pd.Timestamp("2024-01-02")].iloc[0]
+    new_regime_row = overlaid.loc[overlaid["date"] == pd.Timestamp("2024-01-03")].iloc[0]
+    assert transition_row["target_position"] == 0.1
+    assert new_regime_row["target_position"] == 0.0

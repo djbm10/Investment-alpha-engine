@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 3: Topological Regime Detection
-- Active task: Integrate the validated TDA regime states into the backtest so transitions cut exposure without erasing the cleared Phase 2 edge
-- Next step: Feed daily regime states into the strategy path, add `run-phase3` / `verify-phase3`, and measure drawdown reduction versus the frozen Phase 2 baseline
+- Active task: Run the first full Phase 3 combined-system backtest and compare it directly against the frozen Phase 2 baseline
+- Next step: Execute `run-phase3`, `verify-phase3`, and `diagnose-monthly`, then decide whether defaults pass or whether the TDA-only sweep is necessary
 
 ## Tasks
 1. Set up data ingestion using yfinance
