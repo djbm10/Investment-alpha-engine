@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 2: Graph Signal Processing Engine
-- Active task: Execute the constrained Phase 2 v2 sweep, run the best candidate, verify the gate, and run monthly diagnostics on the resulting best run
-- Next step: Use the v2 sweep outputs to set the best candidate in config, rerun Phase 2, and check whether monthly consistency finally clears the gate
+- Active task: Keep the project blocked in Phase 2 until a narrower, more correlated universe or materially better graph signal specification passes the gate
+- Next step: Revert the tier-2 entry logic as the active default and test a more correlated sub-universe before any further Phase 2 sweep work
 
 ## Tasks
 1. Set up data ingestion using yfinance
