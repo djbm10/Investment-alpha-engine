@@ -73,6 +73,7 @@ def build_monthly_breakdown(backtest_result: BacktestResult) -> pd.DataFrame:
                 "avg_entry_zscore",
                 "avg_holding_days",
                 "profitable",
+                "active_month",
                 "cost_flipped_month",
             ]
         )
@@ -115,7 +116,7 @@ def build_monthly_breakdown(backtest_result: BacktestResult) -> pd.DataFrame:
         )
 
     breakdown = (
-        backtest_result.monthly_results.loc[:, ["test_month", "profitable"]]
+        backtest_result.monthly_results.loc[:, ["test_month", "profitable", "active_month"]]
         .merge(monthly_returns, on="test_month", how="left")
         .merge(trade_stats, on="test_month", how="left")
         .sort_values("test_month")
@@ -125,10 +126,16 @@ def build_monthly_breakdown(backtest_result: BacktestResult) -> pd.DataFrame:
     breakdown["trade_count"] = breakdown["trade_count"].fillna(0).astype(int)
     breakdown["avg_entry_zscore"] = breakdown["avg_entry_zscore"].astype(float)
     breakdown["avg_holding_days"] = breakdown["avg_holding_days"].astype(float)
+    if "active_month" not in breakdown.columns:
+        breakdown["active_month"] = True
+    breakdown["active_month"] = breakdown["active_month"].fillna(False).astype(bool)
     breakdown["cost_flipped_month"] = (
-        breakdown["gross_monthly_return"].gt(0) & breakdown["net_monthly_return"].le(0)
+        breakdown["active_month"]
+        & breakdown["gross_monthly_return"].gt(0)
+        & breakdown["net_monthly_return"].le(0)
     )
-    breakdown["unprofitable_month"] = ~breakdown["profitable"].astype(bool)
+    breakdown["inactive_month"] = ~breakdown["active_month"]
+    breakdown["unprofitable_month"] = breakdown["active_month"] & ~breakdown["profitable"].astype(bool)
     return breakdown
 
 
@@ -138,7 +145,8 @@ def build_monthly_summary_text(breakdown: pd.DataFrame) -> str:
 
     losing_months = breakdown.loc[breakdown["unprofitable_month"]].copy()
     losing_count = int(len(losing_months))
-    total_months = int(len(breakdown))
+    active_months = int(breakdown["active_month"].sum())
+    inactive_months = int(breakdown["inactive_month"].sum())
     thin_months = int((losing_months["trade_count"] < 5).sum())
     cost_flips = int(losing_months["cost_flipped_month"].sum())
     avg_cost = float(losing_months["transaction_cost"].mean()) if losing_count else 0.0
@@ -146,7 +154,8 @@ def build_monthly_summary_text(breakdown: pd.DataFrame) -> str:
     avg_holding = float(losing_months["avg_holding_days"].dropna().mean()) if losing_count else 0.0
 
     summary_lines = [
-        f"{losing_count} of {total_months} out-of-sample months were unprofitable.",
+        f"{losing_count} of {active_months} active out-of-sample months were unprofitable.",
+        f"{inactive_months} inactive months were flat and excluded from the profitable-month calculation.",
         f"{thin_months} losing months had fewer than 5 entered trades.",
         f"{cost_flips} losing months were cost-flipped from positive gross to non-positive net returns.",
         f"Losing months averaged transaction cost {avg_cost:.6f}, entry z-score {avg_entry_z:.3f}, and holding period {avg_holding:.2f} days.",
@@ -174,4 +183,3 @@ def _phase2_config_from_snapshot(default_config: Phase2Config, config_snapshot: 
     valid_fields = {field.name for field in fields(Phase2Config)}
     values = {key: value for key, value in snapshot_phase2.items() if key in valid_fields}
     return replace(default_config, **values)
-

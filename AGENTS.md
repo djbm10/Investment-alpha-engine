@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 2: Graph Signal Processing Engine
-- Active task: Run the v3 correlation-aware sweep and measure whether sitting out weak-correlation periods improves the monthly return distribution
-- Next step: Evaluate the 27 fixed-base candidates, promote the best one, and compare the filtered monthly breakdown against the current honest baseline
+- Active task: Re-run the v3 sweep under the corrected inactive-month gate logic, then promote and verify the best candidate
+- Next step: Compare the promoted run against the honest baseline, write the correlation-filter impact report, and close Phase 2 only if the gate truly passes
 
 ## Tasks
 1. Set up data ingestion using yfinance

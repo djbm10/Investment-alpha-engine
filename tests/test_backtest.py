@@ -68,6 +68,8 @@ def test_walk_forward_backtest_returns_summary_and_logs() -> None:
     assert result.summary_metrics["total_signals"] > 0
     assert result.summary_metrics["total_trades"] >= 0
     assert "sharpe_ratio" in result.summary_metrics
+    assert result.summary_metrics["corr_floor"] == 0.30
+    assert result.summary_metrics["density_floor"] == 0.40
 
 
 def test_walk_forward_backtest_keeps_single_sided_positions_when_not_neutral() -> None:
@@ -265,3 +267,97 @@ def test_walk_forward_backtest_keeps_existing_position_during_no_trade_regime() 
 
     assert len(result.trade_log) == 1
     assert result.trade_log.iloc[0]["holding_days"] == 2
+
+
+def test_profitable_month_fraction_excludes_flat_inactive_months() -> None:
+    dates = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-02-01", "2024-02-02"])
+    daily_signals = pd.DataFrame(
+        [
+            {
+                "date": dates[0],
+                "ticker": "XLK",
+                "current_return": 0.001,
+                "expected_return": 0.0,
+                "residual": 0.001,
+                "sigma": 1.0,
+                "edge_density": 0.5,
+                "forward_return": 0.01,
+                "zscore": -2.5,
+                "signal_direction": 1,
+                "target_position": 0.1,
+            },
+            {
+                "date": dates[1],
+                "ticker": "XLK",
+                "current_return": 0.001,
+                "expected_return": 0.0,
+                "residual": 0.001,
+                "sigma": 1.0,
+                "edge_density": 0.5,
+                "forward_return": 0.0,
+                "zscore": 0.1,
+                "signal_direction": 0,
+                "target_position": 0.0,
+            },
+            {
+                "date": dates[2],
+                "ticker": "XLK",
+                "current_return": 0.0,
+                "expected_return": 0.0,
+                "residual": 0.0,
+                "sigma": 1.0,
+                "edge_density": 0.1,
+                "forward_return": 0.0,
+                "zscore": 0.0,
+                "signal_direction": 0,
+                "target_position": 0.0,
+            },
+            {
+                "date": dates[3],
+                "ticker": "XLK",
+                "current_return": 0.0,
+                "expected_return": 0.0,
+                "residual": 0.0,
+                "sigma": 1.0,
+                "edge_density": 0.1,
+                "forward_return": 0.0,
+                "zscore": 0.0,
+                "signal_direction": 0,
+                "target_position": 0.0,
+            },
+        ]
+    )
+    config = Phase2Config(
+        lookback_window=60,
+        diffusion_alpha=0.05,
+        diffusion_steps=3,
+        sigma_scale=1.0,
+        min_weight=0.1,
+        zscore_lookback=60,
+        signal_threshold=1.5,
+        tier2_fraction=0.65,
+        tier2_size_fraction=0.5,
+        full_size_zscore=3.0,
+        max_position_size=0.2,
+        risk_budget_utilization=0.5,
+        max_drawdown_limit=0.20,
+        enforce_dollar_neutral=False,
+        max_holding_days=10,
+        stop_loss=0.05,
+        min_training_months=0,
+        annualization_days=252,
+        commission_bps=0.0,
+        bid_ask_bps=2.0,
+        market_impact_bps=2.0,
+        slippage_bps=1.0,
+        tier2_enabled=False,
+        corr_floor=0.30,
+        density_floor=0.40,
+    )
+
+    result = run_walk_forward_backtest(daily_signals, config, run_id="phase2-flat-months")
+
+    february = result.monthly_results.loc[result.monthly_results["test_month"] == pd.Timestamp("2024-02-01")].iloc[0]
+    assert bool(february["active_month"]) is False
+    assert result.summary_metrics["profitable_month_fraction"] == 1.0
+    assert result.summary_metrics["active_out_of_sample_months"] == 1

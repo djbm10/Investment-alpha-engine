@@ -47,8 +47,20 @@ def test_build_monthly_breakdown_includes_cost_flip_and_trade_stats() -> None:
     )
     monthly_results = pd.DataFrame(
         [
-            {"test_month": pd.Timestamp("2024-01-01"), "training_end_date": pd.Timestamp("2023-12-31"), "monthly_return": -0.001, "profitable": False},
-            {"test_month": pd.Timestamp("2024-02-01"), "training_end_date": pd.Timestamp("2024-01-31"), "monthly_return": 0.004, "profitable": True},
+            {
+                "test_month": pd.Timestamp("2024-01-01"),
+                "training_end_date": pd.Timestamp("2023-12-31"),
+                "monthly_return": -0.001,
+                "profitable": False,
+                "active_month": True,
+            },
+            {
+                "test_month": pd.Timestamp("2024-02-01"),
+                "training_end_date": pd.Timestamp("2024-01-31"),
+                "monthly_return": 0.004,
+                "profitable": True,
+                "active_month": True,
+            },
         ]
     )
 
@@ -80,7 +92,9 @@ def test_build_monthly_summary_text_mentions_losing_month_patterns() -> None:
                 "avg_entry_zscore": -2.0,
                 "avg_holding_days": 2.0,
                 "profitable": False,
+                "active_month": True,
                 "cost_flipped_month": True,
+                "inactive_month": False,
                 "unprofitable_month": True,
             },
             {
@@ -92,7 +106,23 @@ def test_build_monthly_summary_text_mentions_losing_month_patterns() -> None:
                 "avg_entry_zscore": -2.5,
                 "avg_holding_days": 3.0,
                 "profitable": True,
+                "active_month": True,
                 "cost_flipped_month": False,
+                "inactive_month": False,
+                "unprofitable_month": False,
+            },
+            {
+                "test_month": pd.Timestamp("2024-03-01"),
+                "gross_monthly_return": 0.0,
+                "net_monthly_return": 0.0,
+                "transaction_cost": 0.0,
+                "trade_count": 0,
+                "avg_entry_zscore": float("nan"),
+                "avg_holding_days": float("nan"),
+                "profitable": False,
+                "active_month": False,
+                "cost_flipped_month": False,
+                "inactive_month": True,
                 "unprofitable_month": False,
             },
         ]
@@ -100,6 +130,7 @@ def test_build_monthly_summary_text_mentions_losing_month_patterns() -> None:
 
     summary = build_monthly_summary_text(breakdown)
 
-    assert "1 of 2 out-of-sample months were unprofitable." in summary
+    assert "1 of 2 active out-of-sample months were unprofitable." in summary
+    assert "1 inactive months were flat and excluded" in summary
     assert "1 losing months had fewer than 5 entered trades." in summary
     assert "1 losing months were cost-flipped" in summary

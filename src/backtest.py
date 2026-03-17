@@ -257,26 +257,42 @@ def _close_trade_row(
 def _build_monthly_results(daily_results: pd.DataFrame, config: Phase2Config) -> pd.DataFrame:
     if daily_results.empty:
         return pd.DataFrame(
-            columns=["test_month", "training_end_date", "monthly_return", "profitable"]
+            columns=["test_month", "training_end_date", "monthly_return", "profitable", "active_month"]
         )
 
     monthly_returns = (
         daily_results.assign(test_month=daily_results["date"].dt.to_period("M").dt.to_timestamp())
         .groupby("test_month")["portfolio_return"]
         .apply(lambda series: float((1.0 + series).prod() - 1.0))
+        .rename("monthly_return")
         .reset_index()
     )
+    monthly_activity = (
+        daily_results.assign(test_month=daily_results["date"].dt.to_period("M").dt.to_timestamp())
+        .groupby("test_month")
+        .agg(
+            monthly_turnover=("turnover", "sum"),
+            gross_exposure_sum=("gross_exposure", "sum"),
+        )
+        .reset_index()
+    )
+    monthly_stats = monthly_returns.merge(monthly_activity, on="test_month", how="left")
 
     rows: list[dict[str, object]] = []
-    for month_idx in range(config.min_training_months, len(monthly_returns)):
-        test_month = pd.Timestamp(monthly_returns.loc[month_idx, "test_month"])
-        monthly_return = float(monthly_returns.loc[month_idx, "portfolio_return"])
+    for month_idx in range(config.min_training_months, len(monthly_stats)):
+        test_month = pd.Timestamp(monthly_stats.loc[month_idx, "test_month"])
+        monthly_return = float(monthly_stats.loc[month_idx, "monthly_return"])
+        active_month = (
+            float(monthly_stats.loc[month_idx, "monthly_turnover"]) > 0
+            or float(monthly_stats.loc[month_idx, "gross_exposure_sum"]) > 0
+        )
         rows.append(
             {
                 "test_month": test_month,
                 "training_end_date": test_month - pd.Timedelta(days=1),
                 "monthly_return": monthly_return,
-                "profitable": monthly_return > 0,
+                "profitable": active_month and monthly_return > 0,
+                "active_month": active_month,
             }
         )
 
@@ -307,8 +323,13 @@ def _build_summary_metrics(
     profit_factor = _profit_factor(trade_log)
     avg_holding_days = _average_holding_days(trade_log)
     annual_turnover = _annual_turnover(oos_daily_results, config.annualization_days)
+    active_monthly_results = (
+        monthly_results.loc[monthly_results["active_month"]].copy()
+        if not monthly_results.empty and "active_month" in monthly_results.columns
+        else monthly_results.copy()
+    )
     profitable_month_fraction = (
-        float(monthly_results["profitable"].mean()) if not monthly_results.empty else 0.0
+        float(active_monthly_results["profitable"].mean()) if not active_monthly_results.empty else 0.0
     )
 
     gate_passed = (
@@ -327,12 +348,15 @@ def _build_summary_metrics(
         "min_weight": config.min_weight,
         "zscore_lookback": config.zscore_lookback,
         "signal_threshold": config.signal_threshold,
+        "tier2_enabled": config.tier2_enabled,
         "tier2_fraction": config.tier2_fraction,
         "tier2_size_fraction": config.tier2_size_fraction,
         "max_position_size": config.max_position_size,
         "risk_budget_utilization": config.risk_budget_utilization,
         "max_drawdown_limit": config.max_drawdown_limit,
         "enforce_dollar_neutral": config.enforce_dollar_neutral,
+        "corr_floor": config.corr_floor,
+        "density_floor": config.density_floor,
         "total_signals": int((daily_signals["signal_direction"] != 0).sum()),
         "total_trades": int(len(trade_log)),
         "sharpe_ratio": sharpe_ratio,
@@ -343,6 +367,7 @@ def _build_summary_metrics(
         "annual_turnover": annual_turnover,
         "profitable_month_fraction": profitable_month_fraction,
         "out_of_sample_months": int(len(monthly_results)),
+        "active_out_of_sample_months": int(len(active_monthly_results)),
         "gate_passed": gate_passed,
     }
 
