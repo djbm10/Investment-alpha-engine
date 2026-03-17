@@ -75,8 +75,8 @@ phase2_sweep:
 phase3:
   rolling_window: 60
   wasserstein_lookback: 20
-  transition_threshold_sigma: 1.5
-  new_regime_threshold_sigma: 2.5
+  transition_threshold_sigma: 2.0
+  new_regime_threshold_sigma: 3.0
   transition_position_scale: 0.5
   transition_threshold_mult: 1.25
   transition_lookback_cap: 30
