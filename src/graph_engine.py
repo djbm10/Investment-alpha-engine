@@ -77,16 +77,26 @@ def apply_signal_rules(signals: pd.DataFrame, config: Phase2Config) -> pd.DataFr
         return signals.copy()
 
     applied = signals.copy()
-    zscores = applied["zscore"]
-    directions = np.select(
-        [zscores <= -config.signal_threshold, zscores >= config.signal_threshold],
+    abs_zscores = applied["zscore"].abs().fillna(0.0)
+    tier2_threshold = config.signal_threshold * config.tier2_fraction
+
+    applied["signal_direction"] = np.select(
+        [applied["zscore"] <= -tier2_threshold, applied["zscore"] >= tier2_threshold],
         [1, -1],
         default=0,
+    ).astype(int)
+    applied["signal_tier"] = np.select(
+        [abs_zscores >= config.signal_threshold, abs_zscores >= tier2_threshold],
+        [2, 1],
+        default=0,
+    ).astype(int)
+    size_fraction = np.select(
+        [applied["signal_tier"] == 2, applied["signal_tier"] == 1],
+        [1.0, config.tier2_size_fraction],
+        default=0.0,
     )
-    scales = (zscores.abs() / config.full_size_zscore).clip(upper=1.0).fillna(0.0)
-    applied["signal_direction"] = directions.astype(int)
     applied["target_position"] = (
-        applied["signal_direction"].astype(float) * config.max_position_size * scales
+        applied["signal_direction"].astype(float) * config.max_position_size * size_fraction
     )
     return applied
 

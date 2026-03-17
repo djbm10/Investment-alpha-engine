@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 2: Graph Signal Processing Engine
-- Active task: Add a two-tier Phase 2 entry system so moderate residual deviations can contribute during thin months
-- Next step: Implement `tier2_fraction` and `tier2_size_fraction`, verify the new signal generation path, and then expand the constrained sweep
+- Active task: Run the constrained Phase 2 v2 sweep using the top 3 prior base configurations, risk budget utilization, and tier 2 threshold variants
+- Next step: Update the sweep logic to produce `phase2_sweep_results_v2.csv` and `phase2_sweep_best_v2.json`, then use the best candidate for the next verification run
 
 ## Tasks
 1. Set up data ingestion using yfinance

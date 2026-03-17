@@ -51,6 +51,8 @@ class Phase2Config:
     min_weight: float
     zscore_lookback: int
     signal_threshold: float
+    tier2_fraction: float
+    tier2_size_fraction: float
     full_size_zscore: float
     max_position_size: float
     risk_budget_utilization: float
@@ -75,6 +77,7 @@ class Phase2SweepConfig:
     min_weights: list[float]
     zscore_lookbacks: list[int]
     risk_budget_utilizations: list[float]
+    tier2_fractions: list[float]
     signal_thresholds: list[float]
 
 
@@ -133,6 +136,8 @@ def load_config(config_path: str | Path) -> PipelineConfig:
         min_weight=float(data["phase2"]["min_weight"]),
         zscore_lookback=int(data["phase2"]["zscore_lookback"]),
         signal_threshold=float(data["phase2"]["signal_threshold"]),
+        tier2_fraction=float(data["phase2"].get("tier2_fraction", 0.65)),
+        tier2_size_fraction=float(data["phase2"].get("tier2_size_fraction", 0.5)),
         full_size_zscore=float(data["phase2"]["full_size_zscore"]),
         max_position_size=float(data["phase2"]["max_position_size"]),
         risk_budget_utilization=float(data["phase2"].get("risk_budget_utilization", 0.5)),
@@ -203,5 +208,6 @@ def _load_phase2_sweep_config(data: dict[str, object], phase2: Phase2Config) -> 
             float(value)
             for value in data.get("risk_budget_utilizations", [phase2.risk_budget_utilization])
         ],
+        tier2_fractions=[float(value) for value in data.get("tier2_fractions", [phase2.tier2_fraction])],
         signal_thresholds=[float(value) for value in data.get("signal_thresholds", [phase2.signal_threshold])],
     )

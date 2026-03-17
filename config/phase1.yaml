@@ -50,6 +50,8 @@ phase2:
   min_weight: 0.1
   zscore_lookback: 75
   signal_threshold: 2.8
+  tier2_fraction: 0.65
+  tier2_size_fraction: 0.5
   full_size_zscore: 3.0
   max_position_size: 0.20
   risk_budget_utilization: 0.5
@@ -72,4 +74,5 @@ phase2_sweep:
   min_weights: [0.1, 0.2, 0.3]
   zscore_lookbacks: [60, 75, 90]
   risk_budget_utilizations: [0.3, 0.5, 0.7]
+  tier2_fractions: [0.55, 0.65, 0.75]
   signal_thresholds: [2.5, 2.8, 3.0]
