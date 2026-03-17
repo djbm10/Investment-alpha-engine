@@ -73,15 +73,9 @@ class Phase2Config:
 
 @dataclass(frozen=True)
 class Phase2SweepConfig:
-    lookback_windows: list[int]
-    diffusion_alphas: list[float]
-    diffusion_steps: list[int]
-    sigma_scales: list[float]
-    min_weights: list[float]
-    zscore_lookbacks: list[int]
     risk_budget_utilizations: list[float]
-    tier2_fractions: list[float]
-    signal_thresholds: list[float]
+    corr_floors: list[float]
+    density_floors: list[float]
 
 
 @dataclass(frozen=True)
@@ -204,16 +198,10 @@ def _serialize_paths(value: object) -> object:
 
 def _load_phase2_sweep_config(data: dict[str, object], phase2: Phase2Config) -> Phase2SweepConfig:
     return Phase2SweepConfig(
-        lookback_windows=[int(value) for value in data.get("lookback_windows", [phase2.lookback_window])],
-        diffusion_alphas=[float(value) for value in data.get("diffusion_alphas", [phase2.diffusion_alpha])],
-        diffusion_steps=[int(value) for value in data.get("diffusion_steps", [phase2.diffusion_steps])],
-        sigma_scales=[float(value) for value in data.get("sigma_scales", [phase2.sigma_scale])],
-        min_weights=[float(value) for value in data.get("min_weights", [phase2.min_weight])],
-        zscore_lookbacks=[int(value) for value in data.get("zscore_lookbacks", [phase2.zscore_lookback])],
         risk_budget_utilizations=[
             float(value)
             for value in data.get("risk_budget_utilizations", [phase2.risk_budget_utilization])
         ],
-        tier2_fractions=[float(value) for value in data.get("tier2_fractions", [phase2.tier2_fraction])],
-        signal_thresholds=[float(value) for value in data.get("signal_thresholds", [phase2.signal_threshold])],
+        corr_floors=[float(value) for value in data.get("corr_floors", [phase2.corr_floor])],
+        density_floors=[float(value) for value in data.get("density_floors", [phase2.density_floor])],
     )

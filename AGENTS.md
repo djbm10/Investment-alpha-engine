@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 2: Graph Signal Processing Engine
-- Active task: Add the new correlation regime filter to the constrained Phase 2 sweep so only correlation-aware candidates are evaluated
-- Next step: Fix the sweep on the single best v1 base configuration, sweep corr floor / density floor / risk budget, and save the results as the v3 artifacts
+- Active task: Run the v3 correlation-aware sweep and measure whether sitting out weak-correlation periods improves the monthly return distribution
+- Next step: Evaluate the 27 fixed-base candidates, promote the best one, and compare the filtered monthly breakdown against the current honest baseline
 
 ## Tasks
 1. Set up data ingestion using yfinance

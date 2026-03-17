@@ -24,8 +24,6 @@ def test_load_config_reads_yaml_values() -> None:
     assert config.phase2.enforce_dollar_neutral is False
     assert config.phase2.corr_floor == 0.30
     assert config.phase2.density_floor == 0.40
-    assert config.phase2_sweep.lookback_windows == [60]
-    assert config.phase2_sweep.zscore_lookbacks == [60, 75, 90]
     assert config.phase2_sweep.risk_budget_utilizations == [0.3, 0.5, 0.7]
-    assert config.phase2_sweep.tier2_fractions == [0.55, 0.65, 0.75]
-    assert config.phase2_sweep.signal_thresholds == [2.5, 2.8, 3.0]
+    assert config.phase2_sweep.corr_floors == [0.25, 0.30, 0.35]
+    assert config.phase2_sweep.density_floors == [0.30, 0.40, 0.50]

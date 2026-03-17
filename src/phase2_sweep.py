@@ -12,7 +12,7 @@ import pandas as pd
 from .backtest import run_walk_forward_backtest, scale_signals_to_risk_budget
 from .config_loader import Phase2Config, PipelineConfig, load_config
 from .database import PostgresStore
-from .graph_engine import apply_signal_rules, compute_graph_signals
+from .graph_engine import compute_graph_signals
 from .logging_utils import setup_logger
 from .storage import ensure_output_directories
 
@@ -24,7 +24,7 @@ class Phase2SweepResult:
     total_candidates: int
 
 
-TOP_BASE_CONFIGURATION_COUNT = 3
+TOP_BASE_CONFIGURATION_COUNT = 1
 
 
 def run_phase2_sweep(config_path: str | Path) -> Phase2SweepResult:
@@ -50,7 +50,8 @@ def run_phase2_sweep(config_path: str | Path) -> Phase2SweepResult:
         extra={
             "context": {
                 "risk_budget_utilizations": config.phase2_sweep.risk_budget_utilizations,
-                "tier2_fractions": config.phase2_sweep.tier2_fractions,
+                "corr_floors": config.phase2_sweep.corr_floors,
+                "density_floors": config.phase2_sweep.density_floors,
                 "base_results_path": str(config.paths.processed_dir / "phase2_sweep_results.csv"),
             }
         },
@@ -100,18 +101,24 @@ def _evaluate_candidates(price_history: pd.DataFrame, config: PipelineConfig) ->
 
     candidate_grid = product(
         base_configurations,
+        config.phase2_sweep.corr_floors,
+        config.phase2_sweep.density_floors,
         config.phase2_sweep.risk_budget_utilizations,
-        config.phase2_sweep.tier2_fractions,
     )
 
-    for (base_rank, base_config), risk_budget_utilization, tier2_fraction in candidate_grid:
-        structural_signals = compute_graph_signals(price_history, config.tickers, base_config)
+    for (
+        (base_rank, base_config),
+        corr_floor,
+        density_floor,
+        risk_budget_utilization,
+    ) in candidate_grid:
         candidate_config = replace(
             base_config,
             risk_budget_utilization=risk_budget_utilization,
-            tier2_fraction=tier2_fraction,
+            corr_floor=corr_floor,
+            density_floor=density_floor,
         )
-        candidate_signals = apply_signal_rules(structural_signals, candidate_config)
+        candidate_signals = compute_graph_signals(price_history, config.tickers, candidate_config)
         scaling_result = scale_signals_to_risk_budget(candidate_signals, candidate_config)
         backtest_result = run_walk_forward_backtest(
             scaling_result.scaled_signals,
@@ -123,8 +130,9 @@ def _evaluate_candidates(price_history: pd.DataFrame, config: PipelineConfig) ->
         summary_metrics["baseline_max_drawdown"] = scaling_result.baseline_max_drawdown
         summary_metrics["target_max_drawdown"] = scaling_result.target_max_drawdown
         summary_metrics["position_scale_factor"] = scaling_result.scale_factor
-        summary_metrics["mean_edge_density"] = float(structural_signals["edge_density"].mean())
-        summary_metrics["median_edge_density"] = float(structural_signals["edge_density"].median())
+        summary_metrics["mean_graph_density"] = float(candidate_signals["graph_density"].mean())
+        summary_metrics["median_graph_density"] = float(candidate_signals["graph_density"].median())
+        summary_metrics["mean_avg_pairwise_corr"] = float(candidate_signals["avg_pairwise_corr"].mean())
         rows.append(summary_metrics)
 
     results = pd.DataFrame(rows)
@@ -150,8 +158,8 @@ def _save_sweep_outputs(
     results: pd.DataFrame,
 ) -> dict[str, Path]:
     processed_dir.mkdir(parents=True, exist_ok=True)
-    results_path = processed_dir / "phase2_sweep_results_v2.csv"
-    best_path = processed_dir / "phase2_sweep_best_v2.json"
+    results_path = processed_dir / "phase2_sweep_results_v3.csv"
+    best_path = processed_dir / "phase2_sweep_best_v3.json"
 
     results.to_csv(results_path, index=False)
     best_payload = {
