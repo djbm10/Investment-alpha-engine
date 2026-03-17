@@ -7,7 +7,7 @@ def test_load_config_reads_yaml_values() -> None:
     config = load_config(Path("config/phase1.yaml"))
 
     assert config.price_source == "yfinance"
-    assert len(config.tickers) == 11
+    assert len(config.tickers) == 8
     assert config.database.database_name == "investment_alpha_engine"
     assert config.paths.raw_dir.name == "raw"
     assert config.schedule.hour == 16

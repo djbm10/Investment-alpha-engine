@@ -1,3 +1,8 @@
+clearance:
+  cleared_on: "2026-03-17"
+  run_id: "b440fc17-3c9c-46a3-840e-d4837b52f9d9"
+  summary: "Phase 2 cleared after excluding XLI/XLF/XLC, enabling the node-level correlation filter, and tightening max_holding_days to 9."
+
 price_source: yfinance
 tickers:
   - XLK

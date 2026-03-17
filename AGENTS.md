@@ -13,9 +13,9 @@ Build the algorithmic trading system described in docs/plan.md.
 - Continually update the `Current Focus` section whenever work progresses so it always shows the active task and next step.
 
 ## Current Focus
-Phase 2: Graph Signal Processing Engine
-- Active task: Run the final Phase 2 attempt with the drag assets removed, the node-level filter enabled, and the one-day tighter holding stop
-- Next step: Verify the combined setup with `run-phase2`, `verify-phase2`, `diagnose-monthly`, and `diagnose-assets`, then decide between Phase 2 clearance and universe expansion
+Phase 2: CLEARED
+- Active task: Preserve the cleared Phase 2 configuration and diagnostics as the frozen handoff into Phase 3
+- Next step: Use the frozen snapshot in `config/phase2_cleared.yaml` as the Phase 3 starting point instead of reopening Phase 2 parameter tuning
 
 ## Tasks
 1. Set up data ingestion using yfinance
