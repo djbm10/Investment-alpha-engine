@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 2: Graph Signal Processing Engine
-- Active task: Check whether losing trades are being held longer than winners before making the final Phase 2 attempt
-- Next step: Compare winning vs losing holding periods on the promoted run and only tighten `max_holding_days` if the losing side is clearly overstaying
+- Active task: Run the final Phase 2 attempt with the drag assets removed, the node-level filter enabled, and the one-day tighter holding stop
+- Next step: Verify the combined setup with `run-phase2`, `verify-phase2`, `diagnose-monthly`, and `diagnose-assets`, then decide between Phase 2 clearance and universe expansion
 
 ## Tasks
 1. Set up data ingestion using yfinance
