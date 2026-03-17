@@ -10,7 +10,7 @@ from uuid import uuid4
 import pandas as pd
 
 from .backtest import run_walk_forward_backtest, scale_signals_to_risk_budget
-from .config_loader import PipelineConfig, load_config
+from .config_loader import Phase2Config, PipelineConfig, load_config
 from .database import PostgresStore
 from .graph_engine import apply_signal_rules, compute_graph_signals
 from .logging_utils import setup_logger
@@ -22,6 +22,9 @@ class Phase2SweepResult:
     best_metrics: dict[str, object]
     output_paths: dict[str, Path]
     total_candidates: int
+
+
+TOP_BASE_CONFIGURATION_COUNT = 3
 
 
 def run_phase2_sweep(config_path: str | Path) -> Phase2SweepResult:
@@ -46,14 +49,9 @@ def run_phase2_sweep(config_path: str | Path) -> Phase2SweepResult:
         "Starting Phase 2 parameter sweep",
         extra={
             "context": {
-                "lookback_windows": config.phase2_sweep.lookback_windows,
-                "diffusion_alphas": config.phase2_sweep.diffusion_alphas,
-                "diffusion_steps": config.phase2_sweep.diffusion_steps,
-                "sigma_scales": config.phase2_sweep.sigma_scales,
-                "min_weights": config.phase2_sweep.min_weights,
-                "zscore_lookbacks": config.phase2_sweep.zscore_lookbacks,
                 "risk_budget_utilizations": config.phase2_sweep.risk_budget_utilizations,
-                "signal_thresholds": config.phase2_sweep.signal_thresholds,
+                "tier2_fractions": config.phase2_sweep.tier2_fractions,
+                "base_results_path": str(config.paths.processed_dir / "phase2_sweep_results.csv"),
             }
         },
     )
@@ -85,62 +83,49 @@ def run_phase2_sweep(config_path: str | Path) -> Phase2SweepResult:
 
 
 def _evaluate_candidates(price_history: pd.DataFrame, config: PipelineConfig) -> pd.DataFrame:
-    thresholds = sorted(set(config.phase2_sweep.signal_thresholds))
-    if not thresholds:
-        raise ValueError("Phase 2 sweep requires at least one signal threshold.")
-
-    base_threshold = thresholds[0]
     rows: list[dict[str, object]] = []
-    structural_candidates = list(
-        product(
-            config.phase2_sweep.lookback_windows,
-            config.phase2_sweep.diffusion_alphas,
-            config.phase2_sweep.diffusion_steps,
-            config.phase2_sweep.sigma_scales,
-            config.phase2_sweep.min_weights,
-            config.phase2_sweep.zscore_lookbacks,
-            config.phase2_sweep.risk_budget_utilizations,
+    previous_results_path = config.paths.processed_dir / "phase2_sweep_results.csv"
+    if not previous_results_path.exists():
+        raise ValueError(
+            f"Previous sweep results were not found at '{previous_results_path}'. "
+            "Run the previous sweep before starting the constrained v2 sweep."
         )
+
+    previous_results = pd.read_csv(previous_results_path)
+    base_configurations = build_base_phase2_configs(
+        previous_results,
+        config.phase2,
+        top_n=TOP_BASE_CONFIGURATION_COUNT,
     )
 
-    for (
-        lookback_window,
-        diffusion_alpha,
-        diffusion_steps,
-        sigma_scale,
-        min_weight,
-        zscore_lookback,
-        risk_budget_utilization,
-    ) in structural_candidates:
-        structural_config = replace(
-            config.phase2,
-            lookback_window=lookback_window,
-            diffusion_alpha=diffusion_alpha,
-            diffusion_steps=diffusion_steps,
-            sigma_scale=sigma_scale,
-            min_weight=min_weight,
-            zscore_lookback=zscore_lookback,
-            risk_budget_utilization=risk_budget_utilization,
-            signal_threshold=base_threshold,
-        )
-        structural_signals = compute_graph_signals(price_history, config.tickers, structural_config)
+    candidate_grid = product(
+        base_configurations,
+        config.phase2_sweep.risk_budget_utilizations,
+        config.phase2_sweep.tier2_fractions,
+    )
 
-        for threshold in thresholds:
-            candidate_config = replace(structural_config, signal_threshold=threshold)
-            candidate_signals = apply_signal_rules(structural_signals, candidate_config)
-            scaling_result = scale_signals_to_risk_budget(candidate_signals, candidate_config)
-            backtest_result = run_walk_forward_backtest(
-                scaling_result.scaled_signals,
-                candidate_config,
-                run_id=f"sweep-{uuid4()}",
-            )
-            summary_metrics = backtest_result.summary_metrics.copy()
-            summary_metrics["baseline_max_drawdown"] = scaling_result.baseline_max_drawdown
-            summary_metrics["target_max_drawdown"] = scaling_result.target_max_drawdown
-            summary_metrics["position_scale_factor"] = scaling_result.scale_factor
-            summary_metrics["mean_edge_density"] = float(structural_signals["edge_density"].mean())
-            summary_metrics["median_edge_density"] = float(structural_signals["edge_density"].median())
-            rows.append(summary_metrics)
+    for (base_rank, base_config), risk_budget_utilization, tier2_fraction in candidate_grid:
+        structural_signals = compute_graph_signals(price_history, config.tickers, base_config)
+        candidate_config = replace(
+            base_config,
+            risk_budget_utilization=risk_budget_utilization,
+            tier2_fraction=tier2_fraction,
+        )
+        candidate_signals = apply_signal_rules(structural_signals, candidate_config)
+        scaling_result = scale_signals_to_risk_budget(candidate_signals, candidate_config)
+        backtest_result = run_walk_forward_backtest(
+            scaling_result.scaled_signals,
+            candidate_config,
+            run_id=f"sweep-{uuid4()}",
+        )
+        summary_metrics = backtest_result.summary_metrics.copy()
+        summary_metrics["base_rank"] = base_rank
+        summary_metrics["baseline_max_drawdown"] = scaling_result.baseline_max_drawdown
+        summary_metrics["target_max_drawdown"] = scaling_result.target_max_drawdown
+        summary_metrics["position_scale_factor"] = scaling_result.scale_factor
+        summary_metrics["mean_edge_density"] = float(structural_signals["edge_density"].mean())
+        summary_metrics["median_edge_density"] = float(structural_signals["edge_density"].median())
+        rows.append(summary_metrics)
 
     results = pd.DataFrame(rows)
     if results.empty:
@@ -165,8 +150,8 @@ def _save_sweep_outputs(
     results: pd.DataFrame,
 ) -> dict[str, Path]:
     processed_dir.mkdir(parents=True, exist_ok=True)
-    results_path = processed_dir / "phase2_sweep_results.csv"
-    best_path = processed_dir / "phase2_sweep_best.json"
+    results_path = processed_dir / "phase2_sweep_results_v2.csv"
+    best_path = processed_dir / "phase2_sweep_best_v2.json"
 
     results.to_csv(results_path, index=False)
     best_payload = {
@@ -181,3 +166,52 @@ def _save_sweep_outputs(
         "results": results_path,
         "best": best_path,
     }
+
+
+def build_base_phase2_configs(
+    previous_results: pd.DataFrame,
+    default_config: Phase2Config,
+    top_n: int = TOP_BASE_CONFIGURATION_COUNT,
+) -> list[tuple[int, Phase2Config]]:
+    required_columns = [
+        "lookback_window",
+        "diffusion_alpha",
+        "diffusion_steps",
+        "sigma_scale",
+        "min_weight",
+        "zscore_lookback",
+        "signal_threshold",
+    ]
+    missing_columns = [column for column in required_columns if column not in previous_results.columns]
+    if missing_columns:
+        raise ValueError(
+            "Previous sweep results are missing required columns: "
+            + ", ".join(sorted(missing_columns))
+        )
+
+    unique_bases = previous_results.drop_duplicates(subset=required_columns).head(top_n)
+    if len(unique_bases) < top_n:
+        raise ValueError(
+            f"Previous sweep results only contained {len(unique_bases)} unique base configurations; "
+            f"{top_n} are required."
+        )
+
+    configurations: list[tuple[int, Phase2Config]] = []
+    for base_rank, row in enumerate(unique_bases.itertuples(index=False), start=1):
+        configurations.append(
+            (
+                base_rank,
+                replace(
+                    default_config,
+                    lookback_window=int(row.lookback_window),
+                    diffusion_alpha=float(row.diffusion_alpha),
+                    diffusion_steps=int(row.diffusion_steps),
+                    sigma_scale=float(row.sigma_scale),
+                    min_weight=float(row.min_weight),
+                    zscore_lookback=int(row.zscore_lookback),
+                    signal_threshold=float(row.signal_threshold),
+                ),
+            )
+        )
+
+    return configurations
