@@ -80,9 +80,10 @@ phase3:
   confirmation_window: 5
   confirmation_required_transition: 3
   confirmation_required_new_regime: 4
-  transition_position_scale: 0.5
-  transition_threshold_mult: 1.25
+  transition_position_scale: 0.75
+  transition_threshold_mult: 1.10
+  new_regime_position_scale: 0.50
+  new_regime_threshold_mult: 1.25
   transition_lookback_cap: 30
-  new_regime_freeze_days: 0
   emergency_recalib_days: 5
   emergency_lookback: 20

@@ -38,6 +38,11 @@ def test_load_phase3_config_reads_phase3_section() -> None:
     config = load_config(Path("config/phase3.yaml"))
 
     assert config.phase2.max_holding_days == 9
-    assert config.phase3.transition_position_scale == 0.5
-    assert config.phase3.transition_threshold_mult == 1.25
+    assert config.phase3.transition_position_scale == 0.75
+    assert config.phase3.transition_threshold_mult == 1.10
+    assert config.phase3.new_regime_position_scale == 0.50
+    assert config.phase3.new_regime_threshold_mult == 1.25
+    assert config.phase3.confirmation_window == 5
+    assert config.phase3.confirmation_required_transition == 3
+    assert config.phase3.confirmation_required_new_regime == 4
     assert config.phase3.emergency_recalib_days == 5

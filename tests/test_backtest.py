@@ -420,8 +420,10 @@ def test_apply_phase3_regime_overlay_reduces_and_freezes_entries() -> None:
         confirmation_window=5,
         confirmation_required_transition=3,
         confirmation_required_new_regime=4,
-        transition_position_scale=0.5,
-        transition_threshold_mult=1.25,
+        transition_position_scale=0.75,
+        transition_threshold_mult=1.10,
+        new_regime_position_scale=0.5,
+        new_regime_threshold_mult=1.25,
         transition_lookback_cap=30,
         new_regime_freeze_days=0,
         emergency_recalib_days=5,
@@ -436,10 +438,9 @@ def test_apply_phase3_regime_overlay_reduces_and_freezes_entries() -> None:
             pd.Timestamp("2024-01-02"): "TRANSITIONING",
             pd.Timestamp("2024-01-03"): "NEW_REGIME",
         },
-        freeze_dates={pd.Timestamp("2024-01-03")},
     )
 
     transition_row = overlaid.loc[overlaid["date"] == pd.Timestamp("2024-01-02")].iloc[0]
     new_regime_row = overlaid.loc[overlaid["date"] == pd.Timestamp("2024-01-03")].iloc[0]
-    assert transition_row["target_position"] == 0.1
-    assert new_regime_row["target_position"] == 0.0
+    assert abs(transition_row["target_position"] - 0.15) < 1e-12
+    assert abs(new_regime_row["target_position"] - 0.1) < 1e-12

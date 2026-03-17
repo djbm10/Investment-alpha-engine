@@ -49,9 +49,7 @@ def apply_phase3_regime_overlay(
         overlaid["allow_new_entries"] = True
 
     transition_mask = overlaid["phase3_regime"] == "TRANSITIONING"
-    freeze_mask = overlaid["date"].isin(freeze_dates)
-    if not freeze_dates and phase3_config.new_regime_freeze_days == 0:
-        freeze_mask = freeze_mask | (overlaid["phase3_regime"] == "NEW_REGIME")
+    new_regime_mask = overlaid["phase3_regime"] == "NEW_REGIME"
 
     overlaid.loc[transition_mask, "regime_threshold_multiplier"] = (
         overlaid.loc[transition_mask, "regime_threshold_multiplier"].astype(float)
@@ -61,7 +59,14 @@ def apply_phase3_regime_overlay(
         overlaid.loc[transition_mask, "regime_position_scale"].astype(float)
         * phase3_config.transition_position_scale
     )
-    overlaid.loc[freeze_mask, "allow_new_entries"] = False
+    overlaid.loc[new_regime_mask, "regime_threshold_multiplier"] = (
+        overlaid.loc[new_regime_mask, "regime_threshold_multiplier"].astype(float)
+        * phase3_config.new_regime_threshold_mult
+    )
+    overlaid.loc[new_regime_mask, "regime_position_scale"] = (
+        overlaid.loc[new_regime_mask, "regime_position_scale"].astype(float)
+        * phase3_config.new_regime_position_scale
+    )
     return apply_signal_rules(overlaid, phase2_config)
 
 

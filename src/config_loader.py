@@ -90,6 +90,8 @@ class Phase3Config:
     confirmation_required_new_regime: int
     transition_position_scale: float
     transition_threshold_mult: float
+    new_regime_position_scale: float
+    new_regime_threshold_mult: float
     transition_lookback_cap: int
     new_regime_freeze_days: int
     emergency_recalib_days: int
@@ -240,6 +242,8 @@ def _load_phase3_config(data: dict[str, object], phase2: Phase2Config) -> Phase3
         confirmation_required_new_regime=int(data.get("confirmation_required_new_regime", 4)),
         transition_position_scale=float(data.get("transition_position_scale", 0.5)),
         transition_threshold_mult=float(data.get("transition_threshold_mult", 1.25)),
+        new_regime_position_scale=float(data.get("new_regime_position_scale", 0.5)),
+        new_regime_threshold_mult=float(data.get("new_regime_threshold_mult", 1.25)),
         transition_lookback_cap=int(data.get("transition_lookback_cap", 30)),
         new_regime_freeze_days=int(data.get("new_regime_freeze_days", 0)),
         emergency_recalib_days=int(data.get("emergency_recalib_days", 5)),
