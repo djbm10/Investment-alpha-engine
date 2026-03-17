@@ -17,6 +17,9 @@ PyYAML = "6.0.3"
 psycopg = { version = "3.3.3", extras = ["binary"] }
 APScheduler = "3.11.2"
 pgserver = "0.1.4"
+giotto-tda = "0.6.2"
+ripser = "0.6.14"
+persim = "0.3.8"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "9.0.2"

@@ -13,9 +13,9 @@ Build the algorithmic trading system described in docs/plan.md.
 - Continually update the `Current Focus` section whenever work progresses so it always shows the active task and next step.
 
 ## Current Focus
-Phase 2: CLEARED
-- Active task: Preserve the cleared Phase 2 configuration and diagnostics as the frozen handoff into Phase 3
-- Next step: Use the frozen snapshot in `config/phase2_cleared.yaml` as the Phase 3 starting point instead of reopening Phase 2 parameter tuning
+Phase 3: Topological Regime Detection
+- Active task: Build the persistence-diagram pipeline and daily TDA regime classifier on top of the frozen Phase 2 graph engine
+- Next step: Expose daily correlation-distance matrices from the graph engine, add `TDARegimeDetector`, and keep the TDA thresholds isolated in a new Phase 3 config section
 
 ## Tasks
 1. Set up data ingestion using yfinance
