@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 4: TDA Deferred
-- Active task: Implement the small causal TCN that predicts next-day residual mean and uncertainty from the Phase 4 feature tensor
-- Next step: Build the walk-forward trainer once the model shape, causality, and loss tests are green
+- Active task: Build the strict walk-forward TCN trainer and dataset pipeline on top of the frozen Phase 2 features
+- Next step: Integrate the trained ensemble back into the Phase 2 signal flow as a veto-and-sizing filter
 
 ## Tasks
 1. Set up data ingestion using yfinance

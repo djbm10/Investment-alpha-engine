@@ -99,6 +99,23 @@ class Phase3Config:
 
 
 @dataclass(frozen=True)
+class Phase4Config:
+    tcn_enabled: bool
+    hidden_channels: int
+    n_blocks: int
+    dropout: float
+    n_ensemble: int
+    learning_rate: float
+    weight_decay: float
+    max_epochs: int
+    patience: int
+    batch_size: int
+    sequence_length: int
+    validation_fraction: float
+    reversion_confirm_threshold: float
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     price_source: str
     tickers: list[str]
@@ -111,6 +128,7 @@ class PipelineConfig:
     phase2: Phase2Config
     phase2_sweep: Phase2SweepConfig
     phase3: Phase3Config
+    phase4: Phase4Config
 
 
 def load_config(config_path: str | Path) -> PipelineConfig:
@@ -176,6 +194,7 @@ def load_config(config_path: str | Path) -> PipelineConfig:
     )
     phase2_sweep = _load_phase2_sweep_config(data.get("phase2_sweep", {}), phase2)
     phase3 = _load_phase3_config(data.get("phase3", {}), phase2)
+    phase4 = _load_phase4_config(data.get("phase4", {}))
 
     return PipelineConfig(
         price_source=str(data["price_source"]),
@@ -189,6 +208,7 @@ def load_config(config_path: str | Path) -> PipelineConfig:
         phase2=phase2,
         phase2_sweep=phase2_sweep,
         phase3=phase3,
+        phase4=phase4,
     )
 
 
@@ -248,4 +268,22 @@ def _load_phase3_config(data: dict[str, object], phase2: Phase2Config) -> Phase3
         new_regime_freeze_days=int(data.get("new_regime_freeze_days", 0)),
         emergency_recalib_days=int(data.get("emergency_recalib_days", 5)),
         emergency_lookback=int(data.get("emergency_lookback", 20)),
+    )
+
+
+def _load_phase4_config(data: dict[str, object]) -> Phase4Config:
+    return Phase4Config(
+        tcn_enabled=bool(data.get("tcn_enabled", True)),
+        hidden_channels=int(data.get("hidden_channels", 32)),
+        n_blocks=int(data.get("n_blocks", 3)),
+        dropout=float(data.get("dropout", 0.2)),
+        n_ensemble=int(data.get("n_ensemble", 3)),
+        learning_rate=float(data.get("learning_rate", 0.001)),
+        weight_decay=float(data.get("weight_decay", 0.0001)),
+        max_epochs=int(data.get("max_epochs", 100)),
+        patience=int(data.get("patience", 10)),
+        batch_size=int(data.get("batch_size", 32)),
+        sequence_length=int(data.get("sequence_length", 20)),
+        validation_fraction=float(data.get("validation_fraction", 0.15)),
+        reversion_confirm_threshold=float(data.get("reversion_confirm_threshold", 0.5)),
     )

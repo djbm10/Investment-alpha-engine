@@ -46,3 +46,14 @@ def test_load_phase3_config_reads_phase3_section() -> None:
     assert config.phase3.confirmation_required_transition == 3
     assert config.phase3.confirmation_required_new_regime == 4
     assert config.phase3.emergency_recalib_days == 5
+
+
+def test_load_phase4_config_reads_phase4_section() -> None:
+    config = load_config(Path("config/phase4.yaml"))
+
+    assert config.phase2.max_holding_days == 9
+    assert config.phase4.tcn_enabled is True
+    assert config.phase4.hidden_channels == 32
+    assert config.phase4.n_blocks == 3
+    assert config.phase4.sequence_length == 20
+    assert config.phase4.validation_fraction == 0.15
