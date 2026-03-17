@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 4: TDA Deferred
-- Active task: Phase 3 is deferred on the 8-asset universe; use the cleared Phase 2 system as the baseline for Phase 4 work
-- Next step: Revisit TDA only after universe expansion or richer topology features make regime detection materially useful
+- Active task: Build the Phase 4 trailing-only feature pipeline on top of the frozen Phase 2 graph engine
+- Next step: Implement the small TCN model after the feature tensors and online scaler are verified
 
 ## Tasks
 1. Set up data ingestion using yfinance
