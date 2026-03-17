@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 3: Topological Regime Detection
-- Active task: Phase 3 is blocked after the best TDA sweep candidate failed the gate; keep the cleared Phase 2 system as the baseline
-- Next step: Reduce regime-detector false positives and redesign the overlay so it lowers drawdown before attempting Phase 3 again; do NOT proceed to Phase 4
+- Active task: Diagnose the Phase 3 false positives so the next detector change targets the actual noise pattern
+- Next step: Add confirmation logic and soften the overlay only after the false-positive breakdown is documented
 
 ## Tasks
 1. Set up data ingestion using yfinance

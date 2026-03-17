@@ -6,6 +6,7 @@ from pathlib import Path
 from .config_loader import load_config
 from .diagnostics.asset_contribution import diagnose_asset_contribution
 from .diagnostics.monthly_analysis import diagnose_monthly_performance
+from .diagnostics.regime_false_positives import diagnose_regime_false_positives
 from .diagnostics.regime_validation import validate_regime_detector
 from .pipeline import initialize_database, run_phase1_pipeline, verify_phase1_gate
 from .phase2 import run_phase2_pipeline, verify_phase2_gate
@@ -30,6 +31,7 @@ def parse_args() -> argparse.Namespace:
     subparsers.add_parser("run-phase3-sweep", help="Sweep the constrained Phase 3 TDA overlay parameters.")
     subparsers.add_parser("diagnose-monthly", help="Analyze the monthly P&L distribution for the current best Phase 2 run.")
     subparsers.add_parser("diagnose-assets", help="Analyze per-asset trade contribution for the latest Phase 2 run.")
+    subparsers.add_parser("diagnose-fp", help="Analyze false positive regime flags for the latest Phase 3 run.")
     subparsers.add_parser("validate-regime-detector", help="Validate the Phase 3 TDA regime detector against known crisis windows.")
     subparsers.add_parser("init-db", help="Initialize the local PostgreSQL cluster and schema.")
     subparsers.add_parser("verify-phase1", help="Verify the Phase 1 validation gate against stored data.")
@@ -108,6 +110,13 @@ def main() -> int:
         print(f"Breakdown: {result.output_path}")
         return 0
 
+    if command == "diagnose-fp":
+        result = diagnose_regime_false_positives(config_path)
+        print("Phase 3 false-positive diagnostics completed.")
+        print(f"Run ID: {result.run_id}")
+        print(f"Breakdown: {result.output_path}")
+        return 0
+
     if command == "validate-regime-detector":
         result = validate_regime_detector(config_path)
         print("Phase 3 regime validation completed.")
@@ -171,7 +180,7 @@ def main() -> int:
 
 def _resolve_config_path(config_path: str, command: str) -> str:
     default_config = "config/phase1.yaml"
-    phase3_commands = {"run-phase3", "run-phase3-sweep", "verify-phase3", "validate-regime-detector"}
+    phase3_commands = {"run-phase3", "run-phase3-sweep", "verify-phase3", "validate-regime-detector", "diagnose-fp"}
     if config_path == default_config and command in phase3_commands:
         phase3_config = Path("config/phase3.yaml")
         if phase3_config.exists():
