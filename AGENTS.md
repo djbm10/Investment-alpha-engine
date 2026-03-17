@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 3: Topological Regime Detection
-- Active task: Run the first full Phase 3 combined-system backtest and compare it directly against the frozen Phase 2 baseline
-- Next step: Execute `run-phase3`, `verify-phase3`, and `diagnose-monthly`, then decide whether defaults pass or whether the TDA-only sweep is necessary
+- Active task: Run the constrained TDA-only sweep because the default Phase 3 overlay missed the gate by a wide margin
+- Next step: Sweep only the TDA thresholds and transition size, promote the best candidate, and then make the final Phase 3 gate decision from that promoted run
 
 ## Tasks
 1. Set up data ingestion using yfinance

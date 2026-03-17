@@ -11,6 +11,7 @@ from .pipeline import initialize_database, run_phase1_pipeline, verify_phase1_ga
 from .phase2 import run_phase2_pipeline, verify_phase2_gate
 from .phase3 import run_phase3_pipeline, verify_phase3_gate
 from .phase2_sweep import run_phase2_sweep
+from .phase3_sweep import run_phase3_sweep
 from .scheduler import next_run_time
 
 
@@ -26,6 +27,7 @@ def parse_args() -> argparse.Namespace:
     subparsers.add_parser("run-phase2", help="Run the Phase 2 graph engine and walk-forward backtest.")
     subparsers.add_parser("run-phase2-sweep", help="Sweep Phase 2 graph parameters across the configured search grid.")
     subparsers.add_parser("run-phase3", help="Run the combined Phase 2 graph engine with the Phase 3 TDA regime overlay.")
+    subparsers.add_parser("run-phase3-sweep", help="Sweep the constrained Phase 3 TDA overlay parameters.")
     subparsers.add_parser("diagnose-monthly", help="Analyze the monthly P&L distribution for the current best Phase 2 run.")
     subparsers.add_parser("diagnose-assets", help="Analyze per-asset trade contribution for the latest Phase 2 run.")
     subparsers.add_parser("validate-regime-detector", help="Validate the Phase 3 TDA regime detector against known crisis windows.")
@@ -72,6 +74,13 @@ def main() -> int:
         for key, value in result.best_metrics.items():
             print(f"{key}: {value}")
         for name, path in result.output_paths.items():
+            print(f"{name}: {path}")
+        return 0
+
+    if command == "run-phase3-sweep":
+        output_paths = run_phase3_sweep(config_path)
+        print("Phase 3 parameter sweep completed.")
+        for name, path in output_paths.items():
             print(f"{name}: {path}")
         return 0
 
@@ -162,7 +171,7 @@ def main() -> int:
 
 def _resolve_config_path(config_path: str, command: str) -> str:
     default_config = "config/phase1.yaml"
-    phase3_commands = {"run-phase3", "verify-phase3", "validate-regime-detector"}
+    phase3_commands = {"run-phase3", "run-phase3-sweep", "verify-phase3", "validate-regime-detector"}
     if config_path == default_config and command in phase3_commands:
         phase3_config = Path("config/phase3.yaml")
         if phase3_config.exists():
