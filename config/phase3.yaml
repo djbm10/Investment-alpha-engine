@@ -77,6 +77,9 @@ phase3:
   wasserstein_lookback: 20
   transition_threshold_sigma: 2.0
   new_regime_threshold_sigma: 3.0
+  confirmation_window: 5
+  confirmation_required_transition: 3
+  confirmation_required_new_regime: 4
   transition_position_scale: 0.5
   transition_threshold_mult: 1.25
   transition_lookback_cap: 30

@@ -85,6 +85,9 @@ class Phase3Config:
     wasserstein_lookback: int
     transition_threshold_sigma: float
     new_regime_threshold_sigma: float
+    confirmation_window: int
+    confirmation_required_transition: int
+    confirmation_required_new_regime: int
     transition_position_scale: float
     transition_threshold_mult: float
     transition_lookback_cap: int
@@ -232,6 +235,9 @@ def _load_phase3_config(data: dict[str, object], phase2: Phase2Config) -> Phase3
         wasserstein_lookback=int(data.get("wasserstein_lookback", 20)),
         transition_threshold_sigma=float(data.get("transition_threshold_sigma", 1.5)),
         new_regime_threshold_sigma=float(data.get("new_regime_threshold_sigma", 2.5)),
+        confirmation_window=int(data.get("confirmation_window", 5)),
+        confirmation_required_transition=int(data.get("confirmation_required_transition", 3)),
+        confirmation_required_new_regime=int(data.get("confirmation_required_new_regime", 4)),
         transition_position_scale=float(data.get("transition_position_scale", 0.5)),
         transition_threshold_mult=float(data.get("transition_threshold_mult", 1.25)),
         transition_lookback_cap=int(data.get("transition_lookback_cap", 30)),

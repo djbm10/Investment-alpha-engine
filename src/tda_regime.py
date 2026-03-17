@@ -50,6 +50,8 @@ class TDARegimeDetector:
         previous_h0: np.ndarray | None = None
         previous_h1: np.ndarray | None = None
         prior_total_distances: list[float] = []
+        transition_exceedances: list[bool] = []
+        new_regime_exceedances: list[bool] = []
 
         for date in sorted(distance_matrices):
             diagram = self.compute_persistence_diagram(distance_matrices[date])
@@ -84,10 +86,22 @@ class TDARegimeDetector:
                     rolling_std = float(trailing.std(ddof=0))
                     transition_threshold = rolling_mean + self.config.transition_threshold_sigma * rolling_std
                     new_regime_threshold = rolling_mean + self.config.new_regime_threshold_sigma * rolling_std
+                    transition_exceeded = total_distance > transition_threshold
+                    new_regime_exceeded = total_distance > new_regime_threshold
+                    transition_exceedances.append(transition_exceeded)
+                    new_regime_exceedances.append(new_regime_exceeded)
+                    recent_transition_count = _recent_true_count(
+                        transition_exceedances,
+                        self.config.confirmation_window,
+                    )
+                    recent_new_regime_count = _recent_true_count(
+                        new_regime_exceedances,
+                        self.config.confirmation_window,
+                    )
 
-                    if total_distance >= new_regime_threshold:
+                    if recent_new_regime_count >= self.config.confirmation_required_new_regime:
                         state = RegimeState.NEW_REGIME
-                    elif total_distance >= transition_threshold:
+                    elif recent_transition_count >= self.config.confirmation_required_transition:
                         state = RegimeState.TRANSITIONING
                     else:
                         state = RegimeState.STABLE
@@ -134,3 +148,9 @@ def _finite_diagram(diagram: np.ndarray) -> np.ndarray:
         return np.empty((0, 2), dtype=float)
     finite_mask = np.isfinite(diagram[:, 1])
     return diagram[finite_mask].astype(float)
+
+
+def _recent_true_count(values: list[bool], window: int) -> int:
+    if not values or window <= 0:
+        return 0
+    return int(sum(bool(value) for value in values[-window:]))

@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 3: Topological Regime Detection
-- Active task: Diagnose the Phase 3 false positives so the next detector change targets the actual noise pattern
-- Next step: Add confirmation logic and soften the overlay only after the false-positive breakdown is documented
+- Active task: Replace single-day regime flags with confirmation logic so isolated Wasserstein spikes stop tripping the overlay
+- Next step: Soften the overlay response after the detector requires persistence across multiple days
 
 ## Tasks
 1. Set up data ingestion using yfinance
