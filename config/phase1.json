@@ -1,0 +1,27 @@
+{
+  "tickers": [
+    "XLK",
+    "XLF",
+    "XLE",
+    "XLV",
+    "XLI",
+    "XLP",
+    "XLU",
+    "XLC",
+    "XLY",
+    "XLRE",
+    "XLB"
+  ],
+  "start_date": "2020-01-01",
+  "end_date": null,
+  "paths": {
+    "raw_dir": "data/raw",
+    "processed_dir": "data/processed",
+    "log_file": "logs/phase1_pipeline.log",
+    "cache_dir": "data/.cache/yfinance"
+  },
+  "validation": {
+    "max_abs_daily_return": 0.5,
+    "max_missing_business_days": 3
+  }
+}
