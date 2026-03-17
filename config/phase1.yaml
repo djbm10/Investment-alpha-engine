@@ -47,10 +47,10 @@ phase2:
   diffusion_alpha: 0.05
   diffusion_steps: 3
   sigma_scale: 1.0
-  min_weight: 0.1
+  min_weight: 0.3
   zscore_lookback: 75
   signal_threshold: 2.8
-  tier2_fraction: 0.65
+  tier2_fraction: 0.75
   tier2_size_fraction: 0.5
   full_size_zscore: 3.0
   max_position_size: 0.20

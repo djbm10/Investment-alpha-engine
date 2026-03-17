@@ -327,6 +327,8 @@ def _build_summary_metrics(
         "min_weight": config.min_weight,
         "zscore_lookback": config.zscore_lookback,
         "signal_threshold": config.signal_threshold,
+        "tier2_fraction": config.tier2_fraction,
+        "tier2_size_fraction": config.tier2_size_fraction,
         "max_position_size": config.max_position_size,
         "risk_budget_utilization": config.risk_budget_utilization,
         "max_drawdown_limit": config.max_drawdown_limit,
