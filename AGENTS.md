@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 2: Graph Signal Processing Engine
-- Active task: Add the node-level correlation filter while carrying forward the clear drag-asset exclusion set from the asset audit
-- Next step: Keep `XLI`, `XLF`, and `XLC` out of the final attempt because the local exclusion check cleared the gate, then layer the per-node decorrelation filter on top
+- Active task: Check whether losing trades are being held longer than winners before making the final Phase 2 attempt
+- Next step: Compare winning vs losing holding periods on the promoted run and only tighten `max_holding_days` if the losing side is clearly overstaying
 
 ## Tasks
 1. Set up data ingestion using yfinance

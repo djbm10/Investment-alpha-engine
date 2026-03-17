@@ -51,6 +51,8 @@ def test_compute_graph_signals_produces_residuals_and_positions() -> None:
     assert signals["edge_density"].between(0, 1).all()
     assert signals["graph_density"].between(0, 1).all()
     assert signals["avg_pairwise_corr"].between(-1, 1).all()
+    assert signals["node_avg_corr"].between(-1, 1).all()
+    assert signals["node_tradeable"].isin([True, False]).all()
     assert signals["graph_regime"].isin({"TRADEABLE", "REDUCED", "NO_TRADE"}).all()
 
 

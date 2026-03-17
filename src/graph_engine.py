@@ -4,12 +4,14 @@ import numpy as np
 import pandas as pd
 
 from .config_loader import Phase2Config
-
-TRADEABLE_REGIME = "TRADEABLE"
-REDUCED_REGIME = "REDUCED"
-NO_TRADE_REGIME = "NO_TRADE"
-REDUCED_POSITION_SCALE = 0.5
-REDUCED_THRESHOLD_MULTIPLIER = 1.25
+from .correlation_filter import (
+    average_pairwise_correlation,
+    classify_universe_regime,
+    graph_density,
+    node_average_correlations,
+    node_tradeable_mask,
+    regime_controls,
+)
 
 
 def build_price_matrix(price_history: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
@@ -42,14 +44,16 @@ def compute_graph_signals(
         correlation = window.corr().to_numpy(dtype=float)
         correlation = np.nan_to_num(correlation, nan=0.0)
         np.fill_diagonal(correlation, 1.0)
-        avg_pairwise_corr = _average_pairwise_correlation(correlation)
+        avg_pairwise_corr = average_pairwise_correlation(correlation)
+        node_avg_corr = node_average_correlations(correlation)
+        node_tradeable = node_tradeable_mask(correlation, config)
 
         distance = _correlation_to_distance(correlation)
         sigma = _scaled_sigma(_estimate_sigma(distance), config.sigma_scale)
         weights = _distance_to_weights(distance, sigma, config.min_weight)
-        graph_density = _graph_density(weights)
-        regime_state = _classify_regime(avg_pairwise_corr, graph_density, config)
-        regime_threshold_multiplier, regime_position_scale, allow_new_entries = _regime_controls(
+        density = graph_density(weights)
+        regime_state = classify_universe_regime(avg_pairwise_corr, density, config)
+        regime_threshold_multiplier, regime_position_scale, universe_allow_entries = regime_controls(
             regime_state
         )
         laplacian = _normalized_laplacian(weights)
@@ -72,12 +76,14 @@ def compute_graph_signals(
                     "residual": float(residual[ticker_idx]),
                     "sigma": float(sigma),
                     "avg_pairwise_corr": float(avg_pairwise_corr),
-                    "graph_density": float(graph_density),
-                    "edge_density": float(graph_density),
+                    "node_avg_corr": float(node_avg_corr[ticker_idx]),
+                    "node_tradeable": bool(node_tradeable[ticker_idx]),
+                    "graph_density": float(density),
+                    "edge_density": float(density),
                     "graph_regime": regime_state,
                     "regime_threshold_multiplier": float(regime_threshold_multiplier),
                     "regime_position_scale": float(regime_position_scale),
-                    "allow_new_entries": bool(allow_new_entries),
+                    "allow_new_entries": bool(universe_allow_entries and node_tradeable[ticker_idx]),
                     "forward_return": _optional_float(forward_row[ticker]),
                 }
             )
@@ -182,42 +188,6 @@ def _apply_diffusion_filter(signal: np.ndarray, laplacian: np.ndarray, alpha: fl
     for _ in range(steps):
         smoothed = filter_matrix @ smoothed
     return smoothed
-
-
-def _average_pairwise_correlation(correlation: np.ndarray) -> float:
-    upper_triangle = correlation[np.triu_indices_from(correlation, k=1)]
-    if upper_triangle.size == 0:
-        return 0.0
-    return float(np.mean(upper_triangle))
-
-
-def _graph_density(weights: np.ndarray) -> float:
-    possible_edges = weights.shape[0] * (weights.shape[0] - 1) / 2
-    if possible_edges == 0:
-        return 0.0
-    nonzero_edges = np.count_nonzero(np.triu(weights > 0, k=1))
-    return float(nonzero_edges / possible_edges)
-
-
-def _classify_regime(avg_pairwise_corr: float, graph_density: float, config: Phase2Config) -> str:
-    if avg_pairwise_corr >= config.corr_floor and graph_density >= config.density_floor:
-        return TRADEABLE_REGIME
-    if (
-        avg_pairwise_corr >= config.corr_floor * 0.75
-        or graph_density >= config.density_floor * 0.75
-    ):
-        return REDUCED_REGIME
-    return NO_TRADE_REGIME
-
-
-def _regime_controls(regime_state: str) -> tuple[float, float, bool]:
-    if regime_state == TRADEABLE_REGIME:
-        return 1.0, 1.0, True
-    if regime_state == REDUCED_REGIME:
-        return REDUCED_THRESHOLD_MULTIPLIER, REDUCED_POSITION_SCALE, True
-    return 1.0, 0.0, False
-
-
 def _rolling_zscore(series: pd.Series, lookback: int) -> pd.Series:
     rolling_mean = series.shift(1).rolling(lookback).mean()
     rolling_std = series.shift(1).rolling(lookback).std(ddof=0)
