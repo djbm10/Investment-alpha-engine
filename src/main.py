@@ -11,6 +11,7 @@ from .diagnostics.regime_validation import validate_regime_detector
 from .pipeline import initialize_database, run_phase1_pipeline, verify_phase1_gate
 from .phase2 import run_phase2_pipeline, verify_phase2_gate
 from .phase3 import run_phase3_pipeline, verify_phase3_gate
+from .phase4 import run_phase4_pipeline, train_tcn_ensemble, verify_phase4_gate
 from .phase2_sweep import run_phase2_sweep
 from .phase3_sweep import run_phase3_sweep
 from .scheduler import next_run_time
@@ -29,6 +30,8 @@ def parse_args() -> argparse.Namespace:
     subparsers.add_parser("run-phase2-sweep", help="Sweep Phase 2 graph parameters across the configured search grid.")
     subparsers.add_parser("run-phase3", help="Run the combined Phase 2 graph engine with the Phase 3 TDA regime overlay.")
     subparsers.add_parser("run-phase3-sweep", help="Sweep the constrained Phase 3 TDA overlay parameters.")
+    subparsers.add_parser("train-tcn", help="Train the latest Phase 4 TCN ensemble split and persist the checkpoints.")
+    subparsers.add_parser("run-phase4", help="Run the Phase 4 walk-forward backtest with the TCN veto overlay.")
     subparsers.add_parser("diagnose-monthly", help="Analyze the monthly P&L distribution for the current best Phase 2 run.")
     subparsers.add_parser("diagnose-assets", help="Analyze per-asset trade contribution for the latest Phase 2 run.")
     subparsers.add_parser("diagnose-fp", help="Analyze false positive regime flags for the latest Phase 3 run.")
@@ -37,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     subparsers.add_parser("verify-phase1", help="Verify the Phase 1 validation gate against stored data.")
     subparsers.add_parser("verify-phase2", help="Verify the latest stored Phase 2 backtest run.")
     subparsers.add_parser("verify-phase3", help="Verify the Phase 3 combined-system gate against the frozen Phase 2 baseline.")
+    subparsers.add_parser("verify-phase4", help="Verify the Phase 4 TCN gate against the frozen Phase 2 baseline.")
     subparsers.add_parser("show-schedule", help="Print the next scheduled Phase 1 run time.")
     return parser.parse_args()
 
@@ -96,9 +100,28 @@ def main() -> int:
             print(f"{name}: {path}")
         return 0
 
+    if command == "train-tcn":
+        result = train_tcn_ensemble(config_path)
+        print("Phase 4 TCN training completed.")
+        print(f"Latest window: {result.latest_window}")
+        print(f"Validation losses: {result.validation_losses}")
+        print(f"Model: {result.model_path}")
+        print(f"Summary: {result.summary_path}")
+        return 0
+
+    if command == "run-phase4":
+        result = run_phase4_pipeline(config_path)
+        print("Phase 4 combined system completed.")
+        print(f"Run ID: {result.run_id}")
+        for key, value in result.summary_metrics.items():
+            print(f"{key}: {value}")
+        for name, path in result.output_paths.items():
+            print(f"{name}: {path}")
+        return 0
+
     if command == "diagnose-monthly":
         result = diagnose_monthly_performance(config_path)
-        print("Phase 2 monthly diagnostics completed.")
+        print("Monthly diagnostics completed.")
         print(f"Run ID: {result.run_id}")
         print(f"Breakdown: {result.output_path}")
         return 0
@@ -169,6 +192,13 @@ def main() -> int:
             print(f"{key}: {value}")
         return 0
 
+    if command == "verify-phase4":
+        result = verify_phase4_gate(config_path)
+        print("Phase 4 verification:")
+        for key, value in result.summary_metrics.items():
+            print(f"{key}: {value}")
+        return 0
+
     if command == "show-schedule":
         config = load_config(config_path)
         upcoming = next_run_time(config)
@@ -181,10 +211,15 @@ def main() -> int:
 def _resolve_config_path(config_path: str, command: str) -> str:
     default_config = "config/phase1.yaml"
     phase3_commands = {"run-phase3", "run-phase3-sweep", "verify-phase3", "validate-regime-detector", "diagnose-fp"}
+    phase4_commands = {"train-tcn", "run-phase4", "verify-phase4"}
     if config_path == default_config and command in phase3_commands:
         phase3_config = Path("config/phase3.yaml")
         if phase3_config.exists():
             return str(phase3_config)
+    if config_path == default_config and command in phase4_commands:
+        phase4_config = Path("config/phase4.yaml")
+        if phase4_config.exists():
+            return str(phase4_config)
     return config_path
 
 

@@ -70,6 +70,65 @@ def apply_phase3_regime_overlay(
     return apply_signal_rules(overlaid, phase2_config)
 
 
+def apply_phase4_tcn_filter(
+    daily_signals: pd.DataFrame,
+    predictions: pd.DataFrame,
+    reversion_confirm_threshold: float,
+) -> pd.DataFrame:
+    if daily_signals.empty:
+        return daily_signals.copy()
+    if predictions.empty:
+        filtered = daily_signals.copy()
+        filtered["tcn_prediction_available"] = False
+        filtered["predicted_residual_mean"] = np.nan
+        filtered["predicted_residual_std"] = np.nan
+        filtered["actual_next_residual"] = np.nan
+        filtered["tcn_veto"] = False
+        filtered["tcn_uncertainty_scale"] = 1.0
+        return filtered
+
+    filtered = daily_signals.copy().merge(
+        predictions.loc[:, ["signal_date", "ticker", "predicted_residual_mean", "predicted_residual_std", "actual_next_residual"]],
+        left_on=["date", "ticker"],
+        right_on=["signal_date", "ticker"],
+        how="left",
+    )
+    filtered.drop(columns=["signal_date"], inplace=True)
+    filtered["tcn_prediction_available"] = (
+        filtered["predicted_residual_mean"].notna() & filtered["predicted_residual_std"].notna()
+    )
+
+    active_signal = filtered["signal_direction"] != 0
+    same_sign_persistence = (
+        np.sign(filtered["zscore"].fillna(0.0))
+        * np.sign(filtered["predicted_residual_mean"].fillna(0.0))
+    ) > 0
+    magnitude_persistence = (
+        filtered["predicted_residual_mean"].abs().fillna(0.0)
+        > filtered["residual"].abs().fillna(0.0) * reversion_confirm_threshold
+    )
+    filtered["tcn_veto"] = (
+        active_signal
+        & filtered["tcn_prediction_available"]
+        & same_sign_persistence
+        & magnitude_persistence
+    )
+
+    filtered["tcn_uncertainty_scale"] = 1.0
+    accepted_mask = active_signal & filtered["tcn_prediction_available"] & ~filtered["tcn_veto"]
+    if accepted_mask.any():
+        inverse_uncertainty = 1.0 / filtered.loc[accepted_mask, "predicted_residual_std"].clip(lower=1e-6)
+        normalization = float(inverse_uncertainty.mean())
+        if normalization > 0:
+            filtered.loc[accepted_mask, "tcn_uncertainty_scale"] = inverse_uncertainty / normalization
+
+    filtered["target_position"] = (
+        filtered["target_position"].astype(float) * filtered["tcn_uncertainty_scale"].astype(float)
+    )
+    filtered.loc[filtered["tcn_veto"], "target_position"] = 0.0
+    return filtered
+
+
 def run_walk_forward_backtest(
     daily_signals: pd.DataFrame,
     config: Phase2Config,

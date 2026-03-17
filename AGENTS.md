@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 4: TDA Deferred
-- Active task: Build the strict walk-forward TCN trainer and dataset pipeline on top of the frozen Phase 2 features
-- Next step: Integrate the trained ensemble back into the Phase 2 signal flow as a veto-and-sizing filter
+- Active task: Integrate the trained TCN ensemble into the Phase 2 signal flow as a veto-and-sizing filter
+- Next step: Run the full walk-forward Phase 4 backtest and make the gate decision from measured Sharpe, calibration, and veto quality
 
 ## Tasks
 1. Set up data ingestion using yfinance

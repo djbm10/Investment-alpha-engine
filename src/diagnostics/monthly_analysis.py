@@ -26,6 +26,24 @@ def diagnose_monthly_performance(
 ) -> MonthlyDiagnosticResult:
     config = load_config(config_path)
     latest_summary_type = _resolve_latest_summary_type(config.paths.processed_dir)
+    if latest_summary_type == "phase4" and run_id is None:
+        backtest_result, resolved_run_id = _load_phase4_backtest_result(config.paths.processed_dir)
+        breakdown = build_monthly_breakdown(backtest_result)
+
+        output_dir = config.paths.project_root / "diagnostics"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / "monthly_breakdown.csv"
+        breakdown.to_csv(output_path, index=False)
+
+        summary_text = build_monthly_summary_text(breakdown)
+        print(summary_text)
+
+        return MonthlyDiagnosticResult(
+            run_id=resolved_run_id,
+            output_path=output_path,
+            summary_text=summary_text,
+            breakdown=breakdown,
+        )
     if latest_summary_type == "phase3" and run_id is None:
         backtest_result, resolved_run_id = _load_phase3_backtest_result(config.paths.processed_dir)
         breakdown = build_monthly_breakdown(backtest_result)
@@ -196,8 +214,15 @@ def _resolve_run_id(processed_dir: Path) -> str | None:
 
 
 def _resolve_latest_summary_type(processed_dir: Path) -> str:
+    phase4_summary = processed_dir / "phase4_summary.json"
     phase3_summary = processed_dir / "phase3_summary.json"
     phase2_summary = processed_dir / "phase2_summary.json"
+    if phase4_summary.exists() and (
+        not phase3_summary.exists() or phase4_summary.stat().st_mtime >= phase3_summary.stat().st_mtime
+    ) and (
+        not phase2_summary.exists() or phase4_summary.stat().st_mtime >= phase2_summary.stat().st_mtime
+    ):
+        return "phase4"
     if phase3_summary.exists() and (
         not phase2_summary.exists() or phase3_summary.stat().st_mtime >= phase2_summary.stat().st_mtime
     ):
@@ -217,6 +242,25 @@ def _load_phase3_backtest_result(processed_dir: Path) -> tuple[BacktestResult, s
     monthly_results = pd.read_csv(processed_dir / "phase3_monthly_results.csv", parse_dates=["test_month", "training_end_date"])
     summary_metrics = {key: value for key, value in payload.items() if key != "config_snapshot"}
     return BacktestResult(daily_results=daily_results, trade_log=trade_log, monthly_results=monthly_results, summary_metrics=summary_metrics), run_id
+
+
+def _load_phase4_backtest_result(processed_dir: Path) -> tuple[BacktestResult, str]:
+    summary_path = processed_dir / "phase4_summary.json"
+    if not summary_path.exists():
+        raise ValueError("Phase 4 summary was not found for monthly diagnostics.")
+
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    run_id = str(payload.get("run_id", "unknown"))
+    daily_results = pd.read_csv(processed_dir / "phase4_daily_results.csv", parse_dates=["date"])
+    trade_log = pd.read_csv(processed_dir / "phase4_trade_log.csv", parse_dates=["entry_date", "exit_date"])
+    monthly_results = pd.read_csv(processed_dir / "phase4_monthly_results.csv", parse_dates=["test_month", "training_end_date"])
+    summary_metrics = {key: value for key, value in payload.items() if key != "config_snapshot"}
+    return BacktestResult(
+        daily_results=daily_results,
+        trade_log=trade_log,
+        monthly_results=monthly_results,
+        summary_metrics=summary_metrics,
+    ), run_id
 
 
 def _phase2_config_from_snapshot(default_config: Phase2Config, config_snapshot: dict[str, object]) -> Phase2Config:

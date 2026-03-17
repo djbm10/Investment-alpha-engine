@@ -1,6 +1,11 @@
 import pandas as pd
 
-from src.backtest import apply_phase3_regime_overlay, run_walk_forward_backtest, scale_signals_to_risk_budget
+from src.backtest import (
+    apply_phase3_regime_overlay,
+    apply_phase4_tcn_filter,
+    run_walk_forward_backtest,
+    scale_signals_to_risk_budget,
+)
 from src.config_loader import Phase2Config, Phase3Config
 
 
@@ -444,3 +449,53 @@ def test_apply_phase3_regime_overlay_reduces_and_freezes_entries() -> None:
     new_regime_row = overlaid.loc[overlaid["date"] == pd.Timestamp("2024-01-03")].iloc[0]
     assert abs(transition_row["target_position"] - 0.15) < 1e-12
     assert abs(new_regime_row["target_position"] - 0.1) < 1e-12
+
+
+def test_apply_phase4_tcn_filter_vetoes_persistent_same_sign_predictions() -> None:
+    daily_signals = pd.DataFrame(
+        [
+            {
+                "date": pd.Timestamp("2024-01-02"),
+                "ticker": "XLK",
+                "signal_direction": 1,
+                "target_position": 0.2,
+                "residual": -0.04,
+                "zscore": -3.0,
+            },
+            {
+                "date": pd.Timestamp("2024-01-02"),
+                "ticker": "XLV",
+                "signal_direction": -1,
+                "target_position": -0.2,
+                "residual": 0.05,
+                "zscore": 2.5,
+            },
+        ]
+    )
+    predictions = pd.DataFrame(
+        [
+            {
+                "signal_date": pd.Timestamp("2024-01-02"),
+                "ticker": "XLK",
+                "predicted_residual_mean": -0.03,
+                "predicted_residual_std": 0.02,
+                "actual_next_residual": -0.01,
+            },
+            {
+                "signal_date": pd.Timestamp("2024-01-02"),
+                "ticker": "XLV",
+                "predicted_residual_mean": -0.01,
+                "predicted_residual_std": 0.03,
+                "actual_next_residual": 0.01,
+            },
+        ]
+    )
+
+    filtered = apply_phase4_tcn_filter(daily_signals, predictions, reversion_confirm_threshold=0.5)
+
+    vetoed = filtered.loc[filtered["ticker"] == "XLK"].iloc[0]
+    retained = filtered.loc[filtered["ticker"] == "XLV"].iloc[0]
+    assert bool(vetoed["tcn_veto"]) is True
+    assert vetoed["target_position"] == 0.0
+    assert bool(retained["tcn_veto"]) is False
+    assert retained["target_position"] != 0.0
