@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 4: TDA Deferred
-- Active task: Build the Phase 4 trailing-only feature pipeline on top of the frozen Phase 2 graph engine
-- Next step: Implement the small TCN model after the feature tensors and online scaler are verified
+- Active task: Implement the small causal TCN that predicts next-day residual mean and uncertainty from the Phase 4 feature tensor
+- Next step: Build the walk-forward trainer once the model shape, causality, and loss tests are green
 
 ## Tasks
 1. Set up data ingestion using yfinance
