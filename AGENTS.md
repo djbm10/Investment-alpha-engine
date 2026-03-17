@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 2: Graph Signal Processing Engine
-- Active task: Re-run the v3 sweep under the corrected inactive-month gate logic, then promote and verify the best candidate
-- Next step: Compare the promoted run against the honest baseline, write the correlation-filter impact report, and close Phase 2 only if the gate truly passes
+- Active task: Keep the project blocked in Phase 2 because the promoted v3 correlation filter run is still one active month short of the gate
+- Next step: Replace the current sector-ETF universe with a narrower, more correlated sub-universe or a more discriminating density metric before any further Phase 2 sweep work
 
 ## Tasks
 1. Set up data ingestion using yfinance
