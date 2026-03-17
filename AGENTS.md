@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 3: Topological Regime Detection
-- Active task: Build the persistence-diagram pipeline and daily TDA regime classifier on top of the frozen Phase 2 graph engine
-- Next step: Expose daily correlation-distance matrices from the graph engine, add `TDARegimeDetector`, and keep the TDA thresholds isolated in a new Phase 3 config section
+- Active task: Validate the TDA detector against historical crisis windows before integrating it into the live backtest path
+- Next step: Add the regime-validation diagnostic and CLI, measure crisis hit rate and false positives, and only then wire regime states into the strategy
 
 ## Tasks
 1. Set up data ingestion using yfinance

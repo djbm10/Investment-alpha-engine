@@ -28,3 +28,16 @@ def test_load_config_reads_yaml_values() -> None:
     assert config.phase2_sweep.risk_budget_utilizations == [0.3, 0.5, 0.7]
     assert config.phase2_sweep.corr_floors == [0.25, 0.30, 0.35]
     assert config.phase2_sweep.density_floors == [0.30, 0.40, 0.50]
+    assert config.phase3.rolling_window == 60
+    assert config.phase3.wasserstein_lookback == 20
+    assert config.phase3.transition_threshold_sigma == 1.5
+    assert config.phase3.new_regime_threshold_sigma == 2.5
+
+
+def test_load_phase3_config_reads_phase3_section() -> None:
+    config = load_config(Path("config/phase3.yaml"))
+
+    assert config.phase2.max_holding_days == 9
+    assert config.phase3.transition_position_scale == 0.5
+    assert config.phase3.transition_threshold_mult == 1.25
+    assert config.phase3.emergency_recalib_days == 5

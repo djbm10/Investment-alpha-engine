@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 
@@ -14,6 +16,12 @@ from .correlation_filter import (
 )
 
 
+@dataclass(frozen=True)
+class GraphMatrixSnapshot:
+    correlation_matrix: np.ndarray
+    distance_matrix: np.ndarray
+
+
 def build_price_matrix(price_history: pd.DataFrame, tickers: list[str]) -> pd.DataFrame:
     price_matrix = (
         price_history.pivot(index="date", columns="ticker", values="adj_close")
@@ -21,6 +29,33 @@ def build_price_matrix(price_history: pd.DataFrame, tickers: list[str]) -> pd.Da
         .reindex(columns=tickers)
     )
     return price_matrix.dropna(how="any")
+
+
+def compute_daily_graph_matrices(
+    price_history: pd.DataFrame,
+    tickers: list[str],
+    lookback_window: int,
+) -> dict[pd.Timestamp, GraphMatrixSnapshot]:
+    price_matrix = build_price_matrix(price_history, tickers)
+    log_returns = np.log(price_matrix / price_matrix.shift(1)).dropna(how="any")
+
+    if len(log_returns) < lookback_window:
+        raise ValueError("Not enough return history to build graph matrices.")
+
+    snapshots: dict[pd.Timestamp, GraphMatrixSnapshot] = {}
+    for end_idx in range(lookback_window - 1, len(log_returns)):
+        window = log_returns.iloc[end_idx - lookback_window + 1 : end_idx + 1]
+        current_date = pd.Timestamp(log_returns.index[end_idx])
+        correlation = window.corr().to_numpy(dtype=float)
+        correlation = np.nan_to_num(correlation, nan=0.0)
+        np.fill_diagonal(correlation, 1.0)
+        distance = _correlation_to_distance(correlation)
+        snapshots[current_date] = GraphMatrixSnapshot(
+            correlation_matrix=correlation,
+            distance_matrix=distance,
+        )
+
+    return snapshots
 
 
 def compute_graph_signals(
@@ -36,19 +71,19 @@ def compute_graph_signals(
         raise ValueError("Not enough return history to build the graph engine.")
 
     rows: list[dict[str, object]] = []
+    graph_matrices = compute_daily_graph_matrices(price_history, tickers, config.lookback_window)
     for end_idx in range(config.lookback_window - 1, len(log_returns)):
         window = log_returns.iloc[end_idx - config.lookback_window + 1 : end_idx + 1]
         current_date = log_returns.index[end_idx]
         current_return = window.iloc[-1].to_numpy(dtype=float)
 
-        correlation = window.corr().to_numpy(dtype=float)
-        correlation = np.nan_to_num(correlation, nan=0.0)
-        np.fill_diagonal(correlation, 1.0)
+        snapshot = graph_matrices[pd.Timestamp(current_date)]
+        correlation = snapshot.correlation_matrix
         avg_pairwise_corr = average_pairwise_correlation(correlation)
         node_avg_corr = node_average_correlations(correlation)
         node_tradeable = node_tradeable_mask(correlation, config)
 
-        distance = _correlation_to_distance(correlation)
+        distance = snapshot.distance_matrix
         sigma = _scaled_sigma(_estimate_sigma(distance), config.sigma_scale)
         weights = _distance_to_weights(distance, sigma, config.min_weight)
         density = graph_density(weights)

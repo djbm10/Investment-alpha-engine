@@ -80,6 +80,20 @@ class Phase2SweepConfig:
 
 
 @dataclass(frozen=True)
+class Phase3Config:
+    rolling_window: int
+    wasserstein_lookback: int
+    transition_threshold_sigma: float
+    new_regime_threshold_sigma: float
+    transition_position_scale: float
+    transition_threshold_mult: float
+    transition_lookback_cap: int
+    new_regime_freeze_days: int
+    emergency_recalib_days: int
+    emergency_lookback: int
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     price_source: str
     tickers: list[str]
@@ -91,6 +105,7 @@ class PipelineConfig:
     schedule: ScheduleConfig
     phase2: Phase2Config
     phase2_sweep: Phase2SweepConfig
+    phase3: Phase3Config
 
 
 def load_config(config_path: str | Path) -> PipelineConfig:
@@ -155,6 +170,7 @@ def load_config(config_path: str | Path) -> PipelineConfig:
         node_corr_floor=float(data["phase2"].get("node_corr_floor", 0.20)),
     )
     phase2_sweep = _load_phase2_sweep_config(data.get("phase2_sweep", {}), phase2)
+    phase3 = _load_phase3_config(data.get("phase3", {}), phase2)
 
     return PipelineConfig(
         price_source=str(data["price_source"]),
@@ -167,6 +183,7 @@ def load_config(config_path: str | Path) -> PipelineConfig:
         schedule=schedule,
         phase2=phase2,
         phase2_sweep=phase2_sweep,
+        phase3=phase3,
     )
 
 
@@ -206,4 +223,19 @@ def _load_phase2_sweep_config(data: dict[str, object], phase2: Phase2Config) -> 
         ],
         corr_floors=[float(value) for value in data.get("corr_floors", [phase2.corr_floor])],
         density_floors=[float(value) for value in data.get("density_floors", [phase2.density_floor])],
+    )
+
+
+def _load_phase3_config(data: dict[str, object], phase2: Phase2Config) -> Phase3Config:
+    return Phase3Config(
+        rolling_window=int(data.get("rolling_window", phase2.lookback_window)),
+        wasserstein_lookback=int(data.get("wasserstein_lookback", 20)),
+        transition_threshold_sigma=float(data.get("transition_threshold_sigma", 1.5)),
+        new_regime_threshold_sigma=float(data.get("new_regime_threshold_sigma", 2.5)),
+        transition_position_scale=float(data.get("transition_position_scale", 0.5)),
+        transition_threshold_mult=float(data.get("transition_threshold_mult", 1.25)),
+        transition_lookback_cap=int(data.get("transition_lookback_cap", 30)),
+        new_regime_freeze_days=int(data.get("new_regime_freeze_days", 0)),
+        emergency_recalib_days=int(data.get("emergency_recalib_days", 5)),
+        emergency_lookback=int(data.get("emergency_lookback", 20)),
     )
