@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 
 from .config_loader import load_config
+from .diagnostics.asset_contribution import diagnose_asset_contribution
 from .diagnostics.monthly_analysis import diagnose_monthly_performance
 from .pipeline import initialize_database, run_phase1_pipeline, verify_phase1_gate
 from .phase2 import run_phase2_pipeline, verify_phase2_gate
@@ -22,6 +23,7 @@ def parse_args() -> argparse.Namespace:
     subparsers.add_parser("run-phase2", help="Run the Phase 2 graph engine and walk-forward backtest.")
     subparsers.add_parser("run-phase2-sweep", help="Sweep Phase 2 graph parameters across the configured search grid.")
     subparsers.add_parser("diagnose-monthly", help="Analyze the monthly P&L distribution for the current best Phase 2 run.")
+    subparsers.add_parser("diagnose-assets", help="Analyze per-asset trade contribution for the latest Phase 2 run.")
     subparsers.add_parser("init-db", help="Initialize the local PostgreSQL cluster and schema.")
     subparsers.add_parser("verify-phase1", help="Verify the Phase 1 validation gate against stored data.")
     subparsers.add_parser("verify-phase2", help="Verify the latest stored Phase 2 backtest run.")
@@ -69,6 +71,13 @@ def main() -> int:
     if command == "diagnose-monthly":
         result = diagnose_monthly_performance(args.config)
         print("Phase 2 monthly diagnostics completed.")
+        print(f"Run ID: {result.run_id}")
+        print(f"Breakdown: {result.output_path}")
+        return 0
+
+    if command == "diagnose-assets":
+        result = diagnose_asset_contribution(args.config)
+        print("Phase 2 asset diagnostics completed.")
         print(f"Run ID: {result.run_id}")
         print(f"Breakdown: {result.output_path}")
         return 0

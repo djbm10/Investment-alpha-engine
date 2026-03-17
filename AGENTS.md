@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 2: Graph Signal Processing Engine
-- Active task: Keep the project blocked in Phase 2 because the promoted v3 correlation filter run is still one active month short of the gate
-- Next step: Replace the current sector-ETF universe with a narrower, more correlated sub-universe or a more discriminating density metric before any further Phase 2 sweep work
+- Active task: Add the node-level correlation filter while carrying forward the clear drag-asset exclusion set from the asset audit
+- Next step: Keep `XLI`, `XLF`, and `XLC` out of the final attempt because the local exclusion check cleared the gate, then layer the per-node decorrelation filter on top
 
 ## Tasks
 1. Set up data ingestion using yfinance
