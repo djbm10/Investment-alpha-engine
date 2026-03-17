@@ -67,6 +67,8 @@ class Phase2Config:
     market_impact_bps: float
     slippage_bps: float
     tier2_enabled: bool = False
+    corr_floor: float = 0.30
+    density_floor: float = 0.40
 
 
 @dataclass(frozen=True)
@@ -153,6 +155,8 @@ def load_config(config_path: str | Path) -> PipelineConfig:
         market_impact_bps=float(data["phase2"]["market_impact_bps"]),
         slippage_bps=float(data["phase2"]["slippage_bps"]),
         tier2_enabled=bool(data["phase2"].get("tier2_enabled", False)),
+        corr_floor=float(data["phase2"].get("corr_floor", 0.30)),
+        density_floor=float(data["phase2"].get("density_floor", 0.40)),
     )
     phase2_sweep = _load_phase2_sweep_config(data.get("phase2_sweep", {}), phase2)
 

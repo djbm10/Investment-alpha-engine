@@ -58,6 +58,8 @@ phase2:
   risk_budget_utilization: 0.5
   max_drawdown_limit: 0.20
   enforce_dollar_neutral: false
+  corr_floor: 0.30
+  density_floor: 0.40
   max_holding_days: 10
   stop_loss: 0.05
   min_training_months: 12

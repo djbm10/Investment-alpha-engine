@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 2: Graph Signal Processing Engine
-- Active task: Build a correlation regime filter that suppresses trading when the graph structure is too weak to trust
-- Next step: Add daily average-correlation and graph-density regime states, then wire them into position sizing and entry gating before the v3 sweep
+- Active task: Add the new correlation regime filter to the constrained Phase 2 sweep so only correlation-aware candidates are evaluated
+- Next step: Fix the sweep on the single best v1 base configuration, sweep corr floor / density floor / risk budget, and save the results as the v3 artifacts
 
 ## Tasks
 1. Set up data ingestion using yfinance
