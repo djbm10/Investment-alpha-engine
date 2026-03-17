@@ -5,6 +5,7 @@ import argparse
 from .config_loader import load_config
 from .diagnostics.asset_contribution import diagnose_asset_contribution
 from .diagnostics.monthly_analysis import diagnose_monthly_performance
+from .diagnostics.regime_validation import validate_regime_detector
 from .pipeline import initialize_database, run_phase1_pipeline, verify_phase1_gate
 from .phase2 import run_phase2_pipeline, verify_phase2_gate
 from .phase2_sweep import run_phase2_sweep
@@ -24,6 +25,7 @@ def parse_args() -> argparse.Namespace:
     subparsers.add_parser("run-phase2-sweep", help="Sweep Phase 2 graph parameters across the configured search grid.")
     subparsers.add_parser("diagnose-monthly", help="Analyze the monthly P&L distribution for the current best Phase 2 run.")
     subparsers.add_parser("diagnose-assets", help="Analyze per-asset trade contribution for the latest Phase 2 run.")
+    subparsers.add_parser("validate-regime-detector", help="Validate the Phase 3 TDA regime detector against known crisis windows.")
     subparsers.add_parser("init-db", help="Initialize the local PostgreSQL cluster and schema.")
     subparsers.add_parser("verify-phase1", help="Verify the Phase 1 validation gate against stored data.")
     subparsers.add_parser("verify-phase2", help="Verify the latest stored Phase 2 backtest run.")
@@ -80,6 +82,14 @@ def main() -> int:
         print("Phase 2 asset diagnostics completed.")
         print(f"Run ID: {result.run_id}")
         print(f"Breakdown: {result.output_path}")
+        return 0
+
+    if command == "validate-regime-detector":
+        result = validate_regime_detector(args.config)
+        print("Phase 3 regime validation completed.")
+        print(f"Hit rate: {result.hit_rate:.2%}")
+        print(f"False positive rate: {result.false_positive_rate:.2%}")
+        print(f"Report: {result.output_path}")
         return 0
 
     if command == "init-db":
