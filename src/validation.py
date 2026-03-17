@@ -39,11 +39,21 @@ def validate_prices(prices: pd.DataFrame, config: ValidationConfig) -> pd.DataFr
         validated["missing_business_days"] > config.max_missing_business_days
     )
 
+    close_denominator = validated["close"].replace(0, pd.NA)
+    adjustment_gap = (validated["adj_close"] - validated["close"]).abs() / close_denominator
+    validated["adjustment_gap_flag"] = adjustment_gap.fillna(0).gt(
+        config.adj_close_close_tolerance
+    )
+    validated["split_detection_flag"] = (
+        validated["stock_splits"].fillna(0).ne(0) | validated["adjustment_gap_flag"]
+    )
     validated["corporate_action_flag"] = (
         validated["dividends"].fillna(0).ne(0)
         | validated["stock_splits"].fillna(0).ne(0)
+        | validated["capital_gains"].fillna(0).ne(0)
     )
     validated["cross_source_status"] = "skipped_single_source_dev"
+    validated["cross_source_validation_flag"] = False
 
     blocking_flags = [
         "return_magnitude_flag",
@@ -66,6 +76,8 @@ def build_quality_report(validated_prices: pd.DataFrame) -> pd.DataFrame:
             return_magnitude_issues=("return_magnitude_flag", "sum"),
             zero_volume_issues=("zero_volume_flag", "sum"),
             continuity_issues=("continuity_flag", "sum"),
+            split_detection_rows=("split_detection_flag", "sum"),
+            adjustment_gap_rows=("adjustment_gap_flag", "sum"),
             corporate_action_events=("corporate_action_flag", "sum"),
             first_date=("date", "min"),
             last_date=("date", "max"),

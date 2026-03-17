@@ -6,6 +6,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
+class ContextAdapter(logging.LoggerAdapter):
+    def process(self, msg: str, kwargs: dict[str, object]) -> tuple[str, dict[str, object]]:
+        extra = kwargs.setdefault("extra", {})
+        context = extra.setdefault("context", {})
+        if isinstance(context, dict):
+            context.update(self.extra)
+        return msg, kwargs
+
+
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload = {
@@ -20,10 +29,10 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
-def setup_logger(log_file: Path) -> logging.Logger:
+def setup_logger(log_file: Path, **context: object) -> ContextAdapter:
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
-    logger = logging.getLogger("phase1_pipeline")
+    logger = logging.getLogger(f"phase1_pipeline:{log_file}")
     logger.setLevel(logging.INFO)
     logger.handlers.clear()
     logger.propagate = False
@@ -38,4 +47,4 @@ def setup_logger(log_file: Path) -> logging.Logger:
     stream_handler.setFormatter(formatter)
     logger.addHandler(stream_handler)
 
-    return logger
+    return ContextAdapter(logger, context)

@@ -5,6 +5,7 @@ __pycache__/
 data/
 logs/
 outputs/
+.pytest_cache/
 
 .env
 .DS_Store

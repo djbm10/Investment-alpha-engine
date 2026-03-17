@@ -1,0 +1,72 @@
+price_source: yfinance
+tickers:
+  - XLK
+  - XLF
+  - XLE
+  - XLV
+  - XLI
+  - XLP
+  - XLU
+  - XLC
+  - XLY
+  - XLRE
+  - XLB
+
+start_date: "2020-01-01"
+end_date: null
+
+paths:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  log_dir: logs
+  pipeline_log_file: logs/phase1_pipeline.jsonl
+  postgres_log_file: logs/postgres.log
+  cache_dir: data/.cache/yfinance
+  postgres_dir: data/postgres/phase1
+
+database:
+  host: 127.0.0.1
+  port: 55432
+  user: postgres
+  admin_database: postgres
+  database_name: investment_alpha_engine
+  require_timescaledb: false
+
+validation:
+  max_abs_daily_return: 0.5
+  max_missing_business_days: 3
+  adj_close_close_tolerance: 0.001
+
+schedule:
+  timezone: America/New_York
+  hour: 16
+  minute: 15
+
+phase2:
+  lookback_window: 60
+  diffusion_alpha: 0.05
+  diffusion_steps: 3
+  sigma_scale: 1.0
+  min_weight: 0.1
+  zscore_lookback: 75
+  signal_threshold: 2.8
+  full_size_zscore: 3.0
+  max_position_size: 0.20
+  enforce_dollar_neutral: false
+  max_holding_days: 10
+  stop_loss: 0.05
+  min_training_months: 12
+  annualization_days: 252
+  commission_bps: 0.0
+  bid_ask_bps: 2.0
+  market_impact_bps: 2.0
+  slippage_bps: 1.0
+
+phase2_sweep:
+  lookback_windows: [60]
+  diffusion_alphas: [0.05]
+  diffusion_steps: [3]
+  sigma_scales: [1.0]
+  min_weights: [0.1, 0.2, 0.3]
+  zscore_lookbacks: [60, 75, 90]
+  signal_thresholds: [2.5, 2.8, 3.0]

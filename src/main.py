@@ -1,72 +1,120 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 
 from .config_loader import load_config
-from .ingestion import download_universe_data
-from .logging_utils import setup_logger
-from .storage import ensure_output_directories, save_pipeline_outputs
-from .validation import build_issue_report, build_quality_report, validate_prices
+from .diagnostics.monthly_analysis import diagnose_monthly_performance
+from .pipeline import initialize_database, run_phase1_pipeline, verify_phase1_gate
+from .phase2 import run_phase2_pipeline, verify_phase2_gate
+from .phase2_sweep import run_phase2_sweep
+from .scheduler import next_run_time
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the Phase 1 data pipeline.")
+    parser = argparse.ArgumentParser(description="Run the trading system build pipeline.")
     parser.add_argument(
         "--config",
-        default="config/phase1.json",
+        default="config/phase1.yaml",
         help="Path to the Phase 1 configuration file.",
     )
+    subparsers = parser.add_subparsers(dest="command")
+    subparsers.add_parser("run-pipeline", help="Download, validate, store, and report Phase 1 data.")
+    subparsers.add_parser("run-phase2", help="Run the Phase 2 graph engine and walk-forward backtest.")
+    subparsers.add_parser("run-phase2-sweep", help="Sweep Phase 2 graph parameters across the configured search grid.")
+    subparsers.add_parser("diagnose-monthly", help="Analyze the monthly P&L distribution for the current best Phase 2 run.")
+    subparsers.add_parser("init-db", help="Initialize the local PostgreSQL cluster and schema.")
+    subparsers.add_parser("verify-phase1", help="Verify the Phase 1 validation gate against stored data.")
+    subparsers.add_parser("verify-phase2", help="Verify the latest stored Phase 2 backtest run.")
+    subparsers.add_parser("show-schedule", help="Print the next scheduled Phase 1 run time.")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    config = load_config(args.config)
-    ensure_output_directories(config.paths)
+    command = args.command or "run-pipeline"
 
-    logger = setup_logger(config.paths.log_file)
-    logger.info(
-        "Starting Phase 1 pipeline",
-        extra={"context": {"tickers": config.tickers, "config_path": str(Path(args.config))}},
-    )
+    if command == "run-pipeline":
+        result = run_phase1_pipeline(args.config)
+        print("Phase 1 pipeline completed.")
+        print(f"Run ID: {result.run_id}")
+        print(f"Raw rows: {result.raw_rows}")
+        print(f"Valid rows: {result.valid_rows}")
+        print(f"Issue rows: {result.issue_rows}")
+        print(f"Database DSN: {result.db_init_result.dsn}")
+        print(f"TimescaleDB enabled: {result.db_init_result.timescaledb_enabled}")
+        for name, path in result.output_paths.items():
+            print(f"{name}: {path}")
+        return 0
 
-    raw_prices = download_universe_data(
-        tickers=config.tickers,
-        start_date=config.start_date,
-        end_date=config.end_date,
-        cache_dir=config.paths.cache_dir,
-        logger=logger,
-    )
-    validated_prices = validate_prices(raw_prices, config.validation)
-    quality_report = build_quality_report(validated_prices)
-    issue_report = build_issue_report(validated_prices)
-    output_paths = save_pipeline_outputs(
-        raw_prices=raw_prices,
-        validated_prices=validated_prices,
-        quality_report=quality_report,
-        issue_report=issue_report,
-        paths=config.paths,
-    )
+    if command == "run-phase2":
+        result = run_phase2_pipeline(args.config)
+        print("Phase 2 graph engine completed.")
+        print(f"Run ID: {result.run_id}")
+        for key, value in result.summary_metrics.items():
+            print(f"{key}: {value}")
+        for name, path in result.output_paths.items():
+            print(f"{name}: {path}")
+        return 0
 
-    logger.info(
-        "Completed Phase 1 pipeline",
-        extra={
-            "context": {
-                "raw_rows": len(raw_prices),
-                "clean_rows": int(validated_prices["is_valid"].sum()),
-                "issue_rows": len(issue_report),
-                "output_paths": {name: str(path) for name, path in output_paths.items()},
-            }
-        },
-    )
+    if command == "run-phase2-sweep":
+        result = run_phase2_sweep(args.config)
+        print("Phase 2 parameter sweep completed.")
+        print(f"Candidates evaluated: {result.total_candidates}")
+        for key, value in result.best_metrics.items():
+            print(f"{key}: {value}")
+        for name, path in result.output_paths.items():
+            print(f"{name}: {path}")
+        return 0
 
-    print("Phase 1 pipeline completed.")
-    print(f"Raw rows: {len(raw_prices)}")
-    print(f"Clean rows: {int(validated_prices['is_valid'].sum())}")
-    print(f"Issue rows: {len(issue_report)}")
-    for name, path in output_paths.items():
-        print(f"{name}: {path}")
+    if command == "diagnose-monthly":
+        result = diagnose_monthly_performance(args.config)
+        print("Phase 2 monthly diagnostics completed.")
+        print(f"Run ID: {result.run_id}")
+        print(f"Breakdown: {result.output_path}")
+        return 0
+
+    if command == "init-db":
+        result = initialize_database(args.config)
+        print("PostgreSQL initialized.")
+        print(f"Database DSN: {result.dsn}")
+        print(f"TimescaleDB enabled: {result.timescaledb_enabled}")
+        return 0
+
+    if command == "verify-phase1":
+        result = verify_phase1_gate(args.config)
+        print("Phase 1 verification:")
+        print(f"can_backfill_full_history: {result.can_backfill_full_history}")
+        print(f"automated_validation_reports: {result.automated_validation_reports}")
+        print(f"postgres_storage_indexed: {result.postgres_storage_indexed}")
+        print(f"externalized_config: {result.externalized_config}")
+        print(f"clean_directory_structure: {result.clean_directory_structure}")
+        print(f"daily_prices_row_count: {result.db_verification.daily_prices_row_count}")
+        print(f"distinct_tickers: {result.db_verification.distinct_tickers}")
+        print(f"earliest_trade_date: {result.db_verification.earliest_trade_date}")
+        print(f"latest_trade_date: {result.db_verification.latest_trade_date}")
+        print(f"quality_report_rows: {result.db_verification.quality_report_rows}")
+        return 0
+
+    if command == "verify-phase2":
+        result = verify_phase2_gate(args.config)
+        print("Phase 2 verification:")
+        print(f"run_id: {result.latest_run.run_id}")
+        print(f"sharpe_ratio: {result.latest_run.sharpe_ratio}")
+        print(f"max_drawdown: {result.latest_run.max_drawdown}")
+        print(f"win_rate: {result.latest_run.win_rate}")
+        print(f"profit_factor: {result.latest_run.profit_factor}")
+        print(f"avg_holding_days: {result.latest_run.avg_holding_days}")
+        print(f"annual_turnover: {result.latest_run.annual_turnover}")
+        print(f"profitable_month_fraction: {result.latest_run.profitable_month_fraction}")
+        print(f"out_of_sample_months: {result.latest_run.out_of_sample_months}")
+        print(f"gate_passed: {result.latest_run.gate_passed}")
+        return 0
+
+    if command == "show-schedule":
+        config = load_config(args.config)
+        upcoming = next_run_time(config)
+        print(f"Next scheduled run: {upcoming.isoformat()}")
+        return 0
 
     return 0
 

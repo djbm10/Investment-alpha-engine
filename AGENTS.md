@@ -13,9 +13,9 @@ Build the algorithmic trading system described in docs/plan.md.
 - Continually update the `Current Focus` section whenever work progresses so it always shows the active task and next step.
 
 ## Current Focus
-Phase 1: Infrastructure & Data Pipeline
-- Active task: Close the remaining Phase 1 gaps from docs/plan.md
-- Next step: Replace JSON config with YAML, add PostgreSQL storage and indexing, add scheduling, and re-verify the one-command backfill
+Phase 2: Graph Signal Processing Engine
+- Active task: Implement adaptive Phase 2 position sizing that uses more of the 20% drawdown budget without leaving Phase 2
+- Next step: Add `risk_budget_utilization` and drawdown-aware scaling after signal generation, then verify it before moving to tiered entries
 
 ## Tasks
 1. Set up data ingestion using yfinance
