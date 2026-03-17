@@ -13,9 +13,9 @@ Build the algorithmic trading system described in docs/plan.md.
 - Continually update the `Current Focus` section whenever work progresses so it always shows the active task and next step.
 
 ## Current Focus
-Phase 3: Topological Regime Detection
-- Active task: Soften the Phase 3 overlay so regime flags taper exposure instead of freezing profitable trades
-- Next step: Re-run validation and the combined backtest to see whether confirmation plus the lighter overlay actually cuts false positives enough
+Phase 4: TDA Deferred
+- Active task: Phase 3 is deferred on the 8-asset universe; use the cleared Phase 2 system as the baseline for Phase 4 work
+- Next step: Revisit TDA only after universe expansion or richer topology features make regime detection materially useful
 
 ## Tasks
 1. Set up data ingestion using yfinance
