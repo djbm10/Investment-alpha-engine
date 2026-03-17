@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 2: Graph Signal Processing Engine
-- Active task: Keep the project blocked in Phase 2 until a narrower, more correlated universe or materially better graph signal specification passes the gate
-- Next step: Revert the tier-2 entry logic as the active default and test a more correlated sub-universe before any further Phase 2 sweep work
+- Active task: Build a correlation regime filter that suppresses trading when the graph structure is too weak to trust
+- Next step: Add daily average-correlation and graph-density regime states, then wire them into position sizing and entry gating before the v3 sweep
 
 ## Tasks
 1. Set up data ingestion using yfinance

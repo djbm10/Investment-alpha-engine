@@ -66,6 +66,7 @@ class Phase2Config:
     bid_ask_bps: float
     market_impact_bps: float
     slippage_bps: float
+    tier2_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -151,6 +152,7 @@ def load_config(config_path: str | Path) -> PipelineConfig:
         bid_ask_bps=float(data["phase2"]["bid_ask_bps"]),
         market_impact_bps=float(data["phase2"]["market_impact_bps"]),
         slippage_bps=float(data["phase2"]["slippage_bps"]),
+        tier2_enabled=bool(data["phase2"].get("tier2_enabled", False)),
     )
     phase2_sweep = _load_phase2_sweep_config(data.get("phase2_sweep", {}), phase2)
 

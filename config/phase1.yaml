@@ -50,6 +50,7 @@ phase2:
   min_weight: 0.3
   zscore_lookback: 75
   signal_threshold: 2.8
+  tier2_enabled: false
   tier2_fraction: 0.75
   tier2_size_fraction: 0.5
   full_size_zscore: 3.0

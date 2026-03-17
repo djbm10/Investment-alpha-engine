@@ -78,23 +78,31 @@ def apply_signal_rules(signals: pd.DataFrame, config: Phase2Config) -> pd.DataFr
 
     applied = signals.copy()
     abs_zscores = applied["zscore"].abs().fillna(0.0)
-    tier2_threshold = config.signal_threshold * config.tier2_fraction
-
-    applied["signal_direction"] = np.select(
-        [applied["zscore"] <= -tier2_threshold, applied["zscore"] >= tier2_threshold],
-        [1, -1],
-        default=0,
-    ).astype(int)
-    applied["signal_tier"] = np.select(
-        [abs_zscores >= config.signal_threshold, abs_zscores >= tier2_threshold],
-        [2, 1],
-        default=0,
-    ).astype(int)
-    size_fraction = np.select(
-        [applied["signal_tier"] == 2, applied["signal_tier"] == 1],
-        [1.0, config.tier2_size_fraction],
-        default=0.0,
-    )
+    if config.tier2_enabled:
+        tier2_threshold = config.signal_threshold * config.tier2_fraction
+        applied["signal_direction"] = np.select(
+            [applied["zscore"] <= -tier2_threshold, applied["zscore"] >= tier2_threshold],
+            [1, -1],
+            default=0,
+        ).astype(int)
+        applied["signal_tier"] = np.select(
+            [abs_zscores >= config.signal_threshold, abs_zscores >= tier2_threshold],
+            [2, 1],
+            default=0,
+        ).astype(int)
+        size_fraction = np.select(
+            [applied["signal_tier"] == 2, applied["signal_tier"] == 1],
+            [1.0, config.tier2_size_fraction],
+            default=0.0,
+        )
+    else:
+        applied["signal_direction"] = np.select(
+            [applied["zscore"] <= -config.signal_threshold, applied["zscore"] >= config.signal_threshold],
+            [1, -1],
+            default=0,
+        ).astype(int)
+        applied["signal_tier"] = np.where(abs_zscores >= config.signal_threshold, 2, 0).astype(int)
+        size_fraction = np.where(applied["signal_tier"] == 2, 1.0, 0.0)
     applied["target_position"] = (
         applied["signal_direction"].astype(float) * config.max_position_size * size_fraction
     )
