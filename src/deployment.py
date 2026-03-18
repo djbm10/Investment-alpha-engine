@@ -77,7 +77,7 @@ class DeploymentManager:
     def _with_alpaca_url(self, base_url: str) -> PipelineConfig:
         return replace(
             self.config,
-            phase7=replace(self.config.phase7, alpaca_base_url=base_url),
+            phase7=replace(self.config.phase7, alpaca_base_url=base_url, mode=self.mode),
         )
 
     def _require_live_confirmation(self) -> None:

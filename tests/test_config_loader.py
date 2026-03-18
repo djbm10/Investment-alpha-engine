@@ -90,3 +90,13 @@ def test_load_phase7_config_reads_risk_limits() -> None:
     assert config.phase7.risk_limits.max_daily_loss_pct == 0.02
     assert config.phase7.risk_limits.max_gross_exposure_pct == 2.0
     assert config.phase7.risk_limits.max_spy_correlation_20d == 0.30
+
+
+def test_load_phase8_config_reads_deployment_controls() -> None:
+    config = load_config(Path("config/phase8.yaml"))
+
+    assert config.deployment.mode == "paper"
+    assert config.deployment.min_capital == 5000
+    assert config.deployment.live_confirmation_path.name == "live_confirmed.txt"
+    assert config.deployment.scaling_schedule.weeks_1_4 == 0.25
+    assert config.deployment.scaling_schedule.weeks_25_plus == 1.0

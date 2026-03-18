@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -11,10 +11,10 @@ from uuid import uuid4
 import pandas as pd
 
 from .backtest import scale_signals_to_risk_budget
-from .broker_alpaca import AlpacaBrokerClient
-from .broker_mock import MockBrokerClient
+from .capital_scaler import CapitalScaler
 from .config_loader import config_to_dict, load_config
 from .database import DatabaseInitResult, DatabaseVerificationResult, PostgresStore
+from .deployment import DeploymentManager
 from .graph_engine import compute_graph_signals
 from .ingestion import download_universe_data
 from .learning.bayesian_optimizer import BayesianParameterOptimizer
@@ -214,7 +214,7 @@ class DailyPipeline:
     ) -> None:
         self.config_path = Path(config_path)
         self.config = load_config(self.config_path)
-        self.mode = mode_override or self.config.phase7.mode
+        self.mode = mode_override or self.config.deployment.mode
         self.state_path = Path(state_path) if state_path is not None else self.config.paths.processed_dir / "phase7_state.json"
         self.logger = setup_logger(self.config.paths.pipeline_log_file, task="phase7-daily", mode=self.mode)
         ensure_output_directories(self.config.paths)
@@ -236,13 +236,11 @@ class DailyPipeline:
         self.trade_journal.close()
 
     def _build_default_broker_client(self) -> Any:
-        if self.mode in {"paper", "live"}:
-            return AlpacaBrokerClient(self.config)
-        return MockBrokerClient(
-            starting_equity=100_000.0,
-            min_slippage_bps=self.config.phase7.mock_slippage_bps_min,
-            max_slippage_bps=self.config.phase7.mock_slippage_bps_max,
+        deployment_config = replace(
+            self.config,
+            deployment=replace(self.config.deployment, mode=self.mode),
         )
+        return DeploymentManager(deployment_config).get_broker_client()
 
     def run_daily(self, date: str | pd.Timestamp | None = None) -> DailyPipelineResult:
         alerts: list[str] = []
@@ -270,11 +268,13 @@ class DailyPipeline:
                 alerts.append(
                     f"SPY correlation warning on {trading_date.date().isoformat()}: {corr_result.correlation:.3f}"
                 )
+            capital_scale_factor = self._current_capital_scale_factor(trading_date)
             target_positions = self._build_target_positions(
                 trading_date=trading_date,
                 portfolio_value=pre_trade_portfolio_value,
                 allocation_weights=allocation_weights,
                 position_scale=corr_result.reduction_scale,
+                capital_scale_factor=capital_scale_factor,
             )
             proposed_orders = self.order_manager.generate_orders(target_positions, current_positions)
         except Exception as exc:
@@ -288,6 +288,7 @@ class DailyPipeline:
                 daily_pnl=0.0,
                 weekly_pnl=0.0,
                 monthly_pnl=0.0,
+                capital_scale_factor=self._current_capital_scale_factor(trading_date),
             )
             return DailyPipelineResult(
                 date=trading_date,
@@ -405,6 +406,7 @@ class DailyPipeline:
             "ytd_pnl": self._year_to_date_pnl(trading_date, post_daily_pnl),
             "allocation_strategy_a": float(allocation_weights["strategy_a"]),
             "allocation_strategy_b": float(allocation_weights["strategy_b"]),
+            "capital_scale_factor": float(capital_scale_factor),
             "strategy_a_status": strategy_statuses["strategy_a"],
             "strategy_b_status": strategy_statuses["strategy_b"],
             "rejected_order_count": len(rejected_orders),
@@ -463,6 +465,7 @@ class DailyPipeline:
             strategy_statuses=strategy_statuses,
             learning_actions=learning_actions,
             circuit_action=circuit_action,
+            capital_scale_factor=capital_scale_factor,
         )
         return DailyPipelineResult(
             date=trading_date,
@@ -483,6 +486,7 @@ class DailyPipeline:
             return {
                 "message": "No daily pipeline history available yet.",
                 "positions": self.state.get("last_positions", {}) or self.broker_client.get_positions(),
+                "capital_scale_factor": 1.0 if self.mode != "live" else self._current_capital_scale_factor(self._resolve_trading_date(None)),
             }
         latest = self.state["daily_records"][-1]
         date = pd.Timestamp(latest["date"])
@@ -503,6 +507,7 @@ class DailyPipeline:
             },
             circuit_action=str(latest.get("circuit_action", "CONTINUE")),
             learning_actions=[],
+            capital_scale_factor=float(latest.get("capital_scale_factor", 1.0)),
         )
         return summary
 
@@ -566,13 +571,16 @@ class DailyPipeline:
 
     def _load_state(self) -> dict[str, Any]:
         if self.state_path.exists():
-            return json.loads(self.state_path.read_text(encoding="utf-8"))
+            state = json.loads(self.state_path.read_text(encoding="utf-8"))
+            state.setdefault("live_start_date", None)
+            return state
         return {
             "last_rebalance_date": None,
             "allocations": {"strategy_a": 0.5, "strategy_b": 0.5},
             "open_trades": {},
             "daily_records": [],
             "last_positions": {},
+            "live_start_date": None,
         }
 
     def _save_state(self) -> None:
@@ -648,6 +656,7 @@ class DailyPipeline:
         portfolio_value: float,
         allocation_weights: dict[str, float],
         position_scale: float,
+        capital_scale_factor: float,
     ) -> dict[str, dict[str, float]]:
         price_map = self._price_map_for_date(trading_date)
         target_positions: dict[str, dict[str, float]] = {}
@@ -676,7 +685,18 @@ class DailyPipeline:
                 "price": price,
                 "market_value": float(quantity * price),
             }
-        return target_positions
+        if self.mode != "live":
+            return target_positions
+
+        scaled_positions: dict[str, dict[str, float]] = {}
+        for asset, payload in target_positions.items():
+            scaled_quantity = float(payload["quantity"]) * capital_scale_factor
+            scaled_positions[asset] = {
+                **payload,
+                "quantity": float(scaled_quantity),
+                "market_value": float(scaled_quantity * float(payload["price"])),
+            }
+        return scaled_positions
 
     def _compute_mark_to_market_pnl(
         self,
@@ -908,6 +928,7 @@ class DailyPipeline:
         strategy_statuses: dict[str, str] | None = None,
         learning_actions: list[str] | None = None,
         circuit_action: str = "CONTINUE",
+        capital_scale_factor: float = 1.0,
     ) -> dict[str, Any]:
         portfolio_value = float(self.broker_client.get_portfolio_value())
         ytd_pnl = self._year_to_date_pnl(trading_date, daily_pnl)
@@ -933,12 +954,24 @@ class DailyPipeline:
             "risk_limit_headroom": risk_headroom,
             "regime_state": regime_state,
             "allocation_weights": allocations,
+            "capital_scale_factor": float(capital_scale_factor),
             "strategy_statuses": strategy_statuses or {"strategy_a": "ACTIVE", "strategy_b": "ACTIVE"},
             "alerts": alerts,
             "discrepancies": discrepancies or [],
             "learning_actions": learning_actions or [],
             "circuit_action": circuit_action,
         }
+
+    def _live_start_date(self, trading_date: pd.Timestamp) -> pd.Timestamp:
+        if self.state.get("live_start_date") is None:
+            self.state["live_start_date"] = trading_date.date().isoformat()
+        return pd.Timestamp(self.state["live_start_date"])
+
+    def _current_capital_scale_factor(self, trading_date: pd.Timestamp) -> float:
+        if self.mode != "live":
+            return 1.0
+        scaler = CapitalScaler(self.config, self._live_start_date(trading_date))
+        return scaler.get_scale_factor(trading_date)
 
     def _is_week_end(self, trading_date: pd.Timestamp) -> bool:
         return self._period_boundary(trading_date, "week")

@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 8: Infrastructure Build In Progress
-- Active task: Add deployment-mode switching and live-readiness checks so going live is a controlled config change after the paper gate clears
-- Next step: Verify the deployment guardrails, then add capital scaling for the live rollout
+- Active task: Add monitoring and alerting so the paper/live pipeline produces health status, daily reports, and durable alerts
+- Next step: Wire monitoring into the daily pipeline, then build performance tracking and reporting
 
 ## Tasks
 1. Set up data ingestion using yfinance
