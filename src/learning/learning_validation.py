@@ -180,9 +180,10 @@ def _validate_mistakes(config, journal: TradeJournal) -> dict[str, object]:
         for category, count in result.category_counts.items():
             aggregate_counts[category] = aggregate_counts.get(category, 0) + count
         total_losses += int(len(result.trade_records))
-        categorized_losses += int(
-            len(result.trade_records.loc[result.trade_records["category"] != "UNCATEGORIZED"])
-        )
+        if not result.trade_records.empty and "category" in result.trade_records.columns:
+            categorized_losses += int(
+                len(result.trade_records.loc[result.trade_records["category"] != "UNCATEGORIZED"])
+            )
         window_start += pd.Timedelta(days=7)
 
     categorized_rate = float(categorized_losses / total_losses) if total_losses else 1.0

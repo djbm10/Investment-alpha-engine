@@ -13,9 +13,9 @@ Build the algorithmic trading system described in docs/plan.md.
 - Continually update the `Current Focus` section whenever work progresses so it always shows the active task and next step.
 
 ## Current Focus
-Phase 6: Learning Engine
-- Active task: Implement the trade journal and learning-loop infrastructure on top of the cleared Phase 5 baseline
-- Next step: Add SQLite trade journaling for Strategy A and Strategy B trades, then validate the Phase 6 learning loops end-to-end
+Phase 6: CLEARED
+- Active task: Phase 6 is cleared; the active baseline now includes the Phase 5 portfolio plus the learning engine loops
+- Next step: Proceed to Phase 7 using the frozen Phase 6 configuration as the live-system baseline
 
 ## Tasks
 1. Set up data ingestion using yfinance

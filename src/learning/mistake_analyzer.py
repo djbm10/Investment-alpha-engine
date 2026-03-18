@@ -13,9 +13,11 @@ from ..trade_journal import TradeJournal
 CORRECTIVE_SIGNALS = {
     "COST_KILLED": "raise minimum z-score for this asset by 0.1",
     "FALSE_REVERSION": "increase momentum filter weight for next month",
+    "REVERSAL_OVERSHOOT": "require a small positive P&L buffer before reversion exits",
     "CORRELATION_BREAKDOWN": "node_corr_floor may be too low",
     "HOLDING_TOO_LONG": "consider tightening max_hold_days by 1",
     "VOLATILITY_MISMATCH": "add vol-scaling to position sizing",
+    "TREND_REVERSAL": "de-risk the trend sleeve when trend breadth weakens",
     "UNCATEGORIZED": "review trade manually for a novel loss pattern",
 }
 
@@ -131,7 +133,7 @@ class MistakeAnalyzer:
                 :,
                 ["trade_id", "strategy", "asset", "category", "net_pnl", "exit_reason"],
             ].head(10)
-            lines.append(preview.to_markdown(index=False))
+            lines.extend(_frame_to_markdown_table(preview))
 
         output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return output_path
@@ -153,6 +155,9 @@ class MistakeAnalyzer:
         ):
             return "FALSE_REVERSION"
 
+        if str(trade.get("exit_reason", "")) == "reversion" and float(trade["net_pnl"]) < 0:
+            return "REVERSAL_OVERSHOOT"
+
         entry_node_corr = trade.get("entry_node_corr")
         if entry_node_corr is not None and not pd.isna(entry_node_corr) and float(entry_node_corr) < 0.20:
             return "CORRELATION_BREAKDOWN"
@@ -165,6 +170,9 @@ class MistakeAnalyzer:
 
         if self._is_volatility_mismatch(trade):
             return "VOLATILITY_MISMATCH"
+
+        if str(trade.get("strategy", "")) == "B" and str(trade.get("exit_reason", "")) == "signal_flip":
+            return "TREND_REVERSAL"
 
         return "UNCATEGORIZED"
 
@@ -233,3 +241,20 @@ def run_mistake_analysis(
         trade_records=result.trade_records,
         output_path=output_path,
     )
+
+
+def _frame_to_markdown_table(frame: pd.DataFrame) -> list[str]:
+    columns = [str(column) for column in frame.columns]
+    header = "| " + " | ".join(columns) + " |"
+    separator = "| " + " | ".join(["---"] * len(columns)) + " |"
+    rows = [header, separator]
+    for _, row in frame.iterrows():
+        values = []
+        for column in frame.columns:
+            value = row[column]
+            if pd.isna(value):
+                values.append("")
+            else:
+                values.append(str(value))
+        rows.append("| " + " | ".join(values) + " |")
+    return rows
