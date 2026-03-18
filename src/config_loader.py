@@ -160,6 +160,29 @@ class LearningConfig:
 
 
 @dataclass(frozen=True)
+class Phase7RiskLimitsConfig:
+    max_daily_loss_pct: float
+    max_weekly_loss_pct: float
+    max_monthly_loss_pct: float
+    max_single_position_pct: float
+    max_gross_exposure_pct: float
+    max_net_exposure_pct: float
+    max_order_pct: float
+    max_spy_correlation_20d: float
+
+
+@dataclass(frozen=True)
+class Phase7Config:
+    mode: str
+    credentials_path: Path
+    alpaca_base_url: str
+    fill_timeout_seconds: int
+    mock_slippage_bps_min: float
+    mock_slippage_bps_max: float
+    risk_limits: Phase7RiskLimitsConfig
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     price_source: str
     tickers: list[str]
@@ -175,6 +198,7 @@ class PipelineConfig:
     phase4: Phase4Config
     phase5: Phase5Config
     learning: LearningConfig
+    phase7: Phase7Config
 
 
 def load_config(config_path: str | Path) -> PipelineConfig:
@@ -243,6 +267,7 @@ def load_config(config_path: str | Path) -> PipelineConfig:
     phase4 = _load_phase4_config(data.get("phase4", {}))
     phase5 = _load_phase5_config(data.get("phase5", {}))
     learning = _load_learning_config(data.get("learning", {}))
+    phase7 = _load_phase7_config(project_root, data.get("phase7", {}))
 
     return PipelineConfig(
         price_source=str(data["price_source"]),
@@ -259,6 +284,7 @@ def load_config(config_path: str | Path) -> PipelineConfig:
         phase4=phase4,
         phase5=phase5,
         learning=learning,
+        phase7=phase7,
     )
 
 
@@ -380,3 +406,64 @@ def _load_learning_config(data: dict[str, object]) -> LearningConfig:
             reactivation_lookback_days=int(kill_switch_data.get("reactivation_lookback_days", 40)),
         ),
     )
+
+
+def _load_phase7_config(project_root: Path, data: dict[str, object]) -> Phase7Config:
+    default_limits = {
+        "max_daily_loss_pct": 0.02,
+        "max_weekly_loss_pct": 0.05,
+        "max_monthly_loss_pct": 0.10,
+        "max_single_position_pct": 0.20,
+        "max_gross_exposure_pct": 2.00,
+        "max_net_exposure_pct": 0.50,
+        "max_order_pct": 0.05,
+        "max_spy_correlation_20d": 0.30,
+    }
+    risk_limit_data = data.get("risk_limits", {})
+    risk_limits = Phase7RiskLimitsConfig(
+        max_daily_loss_pct=_conservative_cap(
+            float(risk_limit_data.get("max_daily_loss_pct", default_limits["max_daily_loss_pct"])),
+            default_limits["max_daily_loss_pct"],
+        ),
+        max_weekly_loss_pct=_conservative_cap(
+            float(risk_limit_data.get("max_weekly_loss_pct", default_limits["max_weekly_loss_pct"])),
+            default_limits["max_weekly_loss_pct"],
+        ),
+        max_monthly_loss_pct=_conservative_cap(
+            float(risk_limit_data.get("max_monthly_loss_pct", default_limits["max_monthly_loss_pct"])),
+            default_limits["max_monthly_loss_pct"],
+        ),
+        max_single_position_pct=_conservative_cap(
+            float(risk_limit_data.get("max_single_position_pct", default_limits["max_single_position_pct"])),
+            default_limits["max_single_position_pct"],
+        ),
+        max_gross_exposure_pct=_conservative_cap(
+            float(risk_limit_data.get("max_gross_exposure_pct", default_limits["max_gross_exposure_pct"])),
+            default_limits["max_gross_exposure_pct"],
+        ),
+        max_net_exposure_pct=_conservative_cap(
+            float(risk_limit_data.get("max_net_exposure_pct", default_limits["max_net_exposure_pct"])),
+            default_limits["max_net_exposure_pct"],
+        ),
+        max_order_pct=_conservative_cap(
+            float(risk_limit_data.get("max_order_pct", default_limits["max_order_pct"])),
+            default_limits["max_order_pct"],
+        ),
+        max_spy_correlation_20d=_conservative_cap(
+            float(risk_limit_data.get("max_spy_correlation_20d", default_limits["max_spy_correlation_20d"])),
+            default_limits["max_spy_correlation_20d"],
+        ),
+    )
+    return Phase7Config(
+        mode=str(data.get("mode", "mock")),
+        credentials_path=_resolve_path(project_root, str(data.get("credentials_path", "config/credentials.yaml"))),
+        alpaca_base_url=str(data.get("alpaca_base_url", "https://paper-api.alpaca.markets")),
+        fill_timeout_seconds=int(data.get("fill_timeout_seconds", 60)),
+        mock_slippage_bps_min=float(data.get("mock_slippage_bps_min", 0.0)),
+        mock_slippage_bps_max=float(data.get("mock_slippage_bps_max", 3.0)),
+        risk_limits=risk_limits,
+    )
+
+
+def _conservative_cap(value: float, hard_limit: float) -> float:
+    return float(min(value, hard_limit))

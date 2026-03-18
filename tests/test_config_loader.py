@@ -79,3 +79,14 @@ def test_load_phase6_config_reads_learning_section() -> None:
     assert config.learning.bayesian.grid_resolution == 5
     assert config.learning.kill_switch.reduction_threshold == -0.5
     assert config.learning.kill_switch.quarantine_lookback_days == 120
+
+
+def test_load_phase7_config_reads_risk_limits() -> None:
+    config = load_config(Path("config/phase7.yaml"))
+
+    assert config.phase7.mode == "mock"
+    assert config.phase7.credentials_path.name == "credentials.yaml"
+    assert config.phase7.fill_timeout_seconds == 60
+    assert config.phase7.risk_limits.max_daily_loss_pct == 0.02
+    assert config.phase7.risk_limits.max_gross_exposure_pct == 2.0
+    assert config.phase7.risk_limits.max_spy_correlation_20d == 0.30

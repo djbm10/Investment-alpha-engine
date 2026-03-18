@@ -13,9 +13,9 @@ Build the algorithmic trading system described in docs/plan.md.
 - Continually update the `Current Focus` section whenever work progresses so it always shows the active task and next step.
 
 ## Current Focus
-Phase 6: CLEARED
-- Active task: Phase 6 is cleared; the active baseline now includes the Phase 5 portfolio plus the learning engine loops
-- Next step: Proceed to Phase 7 using the frozen Phase 6 configuration as the live-system baseline
+Phase 7: Infrastructure Build In Progress
+- Active task: Implement the hard risk limit engine and Phase 7 configuration on top of the frozen Phase 6 baseline
+- Next step: Verify synthetic risk-limit scenarios, then add the broker and order-management layer
 
 ## Tasks
 1. Set up data ingestion using yfinance

@@ -1,0 +1,158 @@
+clearance:
+  carried_forward_from_phase6: "2026-03-18"
+  summary: "Phase 7 starts from the Phase 6 cleared baseline and adds hard risk controls, broker connectivity, and paper-trading orchestration."
+
+price_source: yfinance
+tickers:
+  - XLK
+  - XLE
+  - XLV
+  - XLP
+  - XLU
+  - XLY
+  - XLRE
+  - XLB
+
+start_date: "2020-01-01"
+end_date: null
+
+paths:
+  raw_dir: data/raw
+  processed_dir: data/processed
+  log_dir: logs
+  pipeline_log_file: logs/phase1_pipeline.jsonl
+  postgres_log_file: logs/postgres.log
+  cache_dir: data/.cache/yfinance
+  postgres_dir: data/postgres/phase1
+
+database:
+  host: 127.0.0.1
+  port: 55432
+  user: postgres
+  admin_database: postgres
+  database_name: investment_alpha_engine
+  require_timescaledb: false
+
+validation:
+  max_abs_daily_return: 0.5
+  max_missing_business_days: 3
+  adj_close_close_tolerance: 0.001
+
+schedule:
+  timezone: America/New_York
+  hour: 16
+  minute: 15
+
+phase2:
+  lookback_window: 60
+  diffusion_alpha: 0.05
+  diffusion_steps: 3
+  sigma_scale: 1.0
+  min_weight: 0.1
+  zscore_lookback: 75
+  signal_threshold: 2.8
+  tier2_enabled: false
+  tier2_fraction: 0.75
+  tier2_size_fraction: 0.5
+  full_size_zscore: 3.0
+  max_position_size: 0.20
+  risk_budget_utilization: 0.3
+  max_drawdown_limit: 0.20
+  enforce_dollar_neutral: false
+  corr_floor: 0.30
+  density_floor: 0.30
+  node_corr_floor: 0.20
+  max_holding_days: 9
+  stop_loss: 0.05
+  min_training_months: 12
+  annualization_days: 252
+  commission_bps: 0.0
+  bid_ask_bps: 2.0
+  market_impact_bps: 2.0
+  slippage_bps: 1.0
+
+phase2_sweep:
+  risk_budget_utilizations: [0.3, 0.5, 0.7]
+  corr_floors: [0.25, 0.30, 0.35]
+  density_floors: [0.30, 0.40, 0.50]
+
+phase3:
+  rolling_window: 60
+  wasserstein_lookback: 20
+  transition_threshold_sigma: 1.5
+  new_regime_threshold_sigma: 2.5
+  confirmation_window: 5
+  confirmation_required_transition: 3
+  confirmation_required_new_regime: 4
+  transition_position_scale: 0.75
+  transition_threshold_mult: 1.10
+  new_regime_position_scale: 0.50
+  new_regime_threshold_mult: 1.25
+  transition_lookback_cap: 30
+  new_regime_freeze_days: 0
+  emergency_recalib_days: 5
+  emergency_lookback: 20
+
+phase4:
+  tcn_enabled: false
+  hidden_channels: 32
+  n_blocks: 3
+  dropout: 0.2
+  n_ensemble: 3
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  max_epochs: 100
+  patience: 10
+  batch_size: 32
+  sequence_length: 20
+  validation_fraction: 0.15
+  reversion_confirm_threshold: 0.5
+
+phase5:
+  trend_tickers: [SPY, TLT, GLD, UUP]
+  trend_short_ma: 50
+  trend_long_ma: 200
+  trend_vol_lookback: 20
+  trend_cost_bps: 2.0
+  cash_return_annual: 0.0
+  utility_lambda_uncertainty: 1.0
+  utility_lambda_cost: 2.0
+  softmax_temperature: 1.0
+  min_allocation: 0.15
+  max_allocation: 0.85
+  rebalance_frequency_days: 5
+  performance_lookback: 20
+  daily_loss_limit: 0.02
+
+learning:
+  trade_journal_path: data/trade_journal.db
+  bayesian:
+    evaluation_window: 60
+    update_smoothing: 0.7
+    grid_resolution: 5
+    sharpe_scaling: 2.0
+  kill_switch:
+    reduction_threshold: -0.5
+    quarantine_threshold: -0.5
+    reactivation_threshold: 0.0
+    reactivation_days: 40
+    reduction_lookback_days: 60
+    quarantine_lookback_days: 120
+    reactivation_lookback_days: 40
+
+phase7:
+  mode: mock
+  credentials_path: config/credentials.yaml
+  alpaca_base_url: https://paper-api.alpaca.markets
+  fill_timeout_seconds: 60
+  mock_slippage_bps_min: 0.0
+  mock_slippage_bps_max: 3.0
+  risk_limits:
+    max_daily_loss_pct: 0.02
+    max_weekly_loss_pct: 0.05
+    max_monthly_loss_pct: 0.10
+    max_single_position_pct: 0.20
+    max_gross_exposure_pct: 2.00
+    max_net_exposure_pct: 0.50
+    max_order_pct: 0.05
+    max_spy_correlation_20d: 0.30
