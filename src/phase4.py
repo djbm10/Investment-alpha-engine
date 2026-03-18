@@ -19,7 +19,7 @@ from .backtest import (
 )
 from .config_loader import config_to_dict, load_config
 from .features import FeatureBuilder
-from .graph_engine import compute_graph_signals
+from .graph_engine import compute_daily_graph_matrices, compute_graph_signals
 from .tcn_trainer import SequenceDatasetBundle, TCNTrainer
 
 
@@ -207,9 +207,24 @@ class Phase4Context:
 
 def _prepare_phase4_context(config) -> Phase4Context:
     price_history = _load_validated_price_history(config.paths.processed_dir, config.tickers)
-    daily_signals = compute_graph_signals(price_history.loc[:, ["date", "ticker", "adj_close"]], config.tickers, config.phase2)
+    graph_matrices = compute_daily_graph_matrices(
+        price_history.loc[:, ["date", "ticker", "adj_close"]],
+        config.tickers,
+        config.phase2.lookback_window,
+    )
+    daily_signals = compute_graph_signals(
+        price_history.loc[:, ["date", "ticker", "adj_close"]],
+        config.tickers,
+        config.phase2,
+        graph_matrices=graph_matrices,
+    )
     builder = FeatureBuilder(config)
-    feature_state = builder.prepare_graph_engine_state(price_history, config.tickers)
+    feature_state = builder.prepare_graph_engine_state(
+        price_history,
+        config.tickers,
+        signals=daily_signals,
+        graph_matrices=graph_matrices,
+    )
     features_by_date = builder.build_feature_history(feature_state)
     residuals_by_date = builder.build_residual_history(feature_state)
     trainer = TCNTrainer(config)

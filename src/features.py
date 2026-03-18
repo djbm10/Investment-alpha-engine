@@ -88,10 +88,16 @@ class FeatureBuilder:
         self,
         price_history: pd.DataFrame,
         tickers: list[str],
+        signals: pd.DataFrame | None = None,
+        graph_matrices=None,
     ) -> GraphEngineState:
         normalized = _normalize_price_history(price_history, tickers)
-        signals = compute_graph_signals(normalized.loc[:, ["date", "ticker", "adj_close"]], tickers, self.phase2_config)
-        raw_feature_frame = self._build_raw_feature_frame(normalized, signals, tickers)
+        active_signals = (
+            signals
+            if signals is not None
+            else compute_graph_signals(normalized.loc[:, ["date", "ticker", "adj_close"]], tickers, self.phase2_config)
+        )
+        raw_feature_frame = self._build_raw_feature_frame(normalized, active_signals, tickers, graph_matrices=graph_matrices)
         scaler = ExpandingFeatureScaler(self.feature_names)
         scaled_feature_frame = scaler.transform(raw_feature_frame)
         return GraphEngineState(
@@ -141,6 +147,7 @@ class FeatureBuilder:
         price_history: pd.DataFrame,
         signals: pd.DataFrame,
         tickers: list[str],
+        graph_matrices=None,
     ) -> pd.DataFrame:
         feature_frame = (
             signals.loc[:, ["date", "ticker", "residual", "zscore", "current_return", "node_avg_corr"]]
@@ -192,8 +199,12 @@ class FeatureBuilder:
                 how="left",
             )
 
-        graph_matrices = compute_daily_graph_matrices(price_history.loc[:, ["date", "ticker", "adj_close"]], tickers, self.phase2_config.lookback_window)
-        network_frame = self._build_network_features(feature_frame, graph_matrices, tickers)
+        active_graph_matrices = (
+            graph_matrices
+            if graph_matrices is not None
+            else compute_daily_graph_matrices(price_history.loc[:, ["date", "ticker", "adj_close"]], tickers, self.phase2_config.lookback_window)
+        )
+        network_frame = self._build_network_features(feature_frame, active_graph_matrices, tickers)
         feature_frame = feature_frame.merge(network_frame, on=["date", "ticker"], how="left")
 
         numeric_columns = list(self.feature_names)

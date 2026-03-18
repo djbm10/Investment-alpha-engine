@@ -62,6 +62,7 @@ def compute_graph_signals(
     price_history: pd.DataFrame,
     tickers: list[str],
     config: Phase2Config,
+    graph_matrices: dict[pd.Timestamp, GraphMatrixSnapshot] | None = None,
 ) -> pd.DataFrame:
     price_matrix = build_price_matrix(price_history, tickers)
     log_returns = np.log(price_matrix / price_matrix.shift(1)).dropna(how="any")
@@ -71,13 +72,17 @@ def compute_graph_signals(
         raise ValueError("Not enough return history to build the graph engine.")
 
     rows: list[dict[str, object]] = []
-    graph_matrices = compute_daily_graph_matrices(price_history, tickers, config.lookback_window)
+    active_graph_matrices = (
+        graph_matrices
+        if graph_matrices is not None
+        else compute_daily_graph_matrices(price_history, tickers, config.lookback_window)
+    )
     for end_idx in range(config.lookback_window - 1, len(log_returns)):
         window = log_returns.iloc[end_idx - config.lookback_window + 1 : end_idx + 1]
         current_date = log_returns.index[end_idx]
         current_return = window.iloc[-1].to_numpy(dtype=float)
 
-        snapshot = graph_matrices[pd.Timestamp(current_date)]
+        snapshot = active_graph_matrices[pd.Timestamp(current_date)]
         correlation = snapshot.correlation_matrix
         avg_pairwise_corr = average_pairwise_correlation(correlation)
         node_avg_corr = node_average_correlations(correlation)
