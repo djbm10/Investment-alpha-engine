@@ -21,6 +21,7 @@ from .learning.bayesian_optimizer import BayesianParameterOptimizer
 from .learning.kill_switch import StrategyKillSwitch
 from .learning.mistake_analyzer import MistakeAnalyzer
 from .logging_utils import setup_logger
+from .monitoring import Monitor
 from .order_manager import OrderManager
 from .phase5 import _run_combined_backtest
 from .portfolio_allocator import DynamicAllocator
@@ -200,6 +201,8 @@ class DailyPipelineResult:
     manual_review: bool
     aborted: bool
     learning_actions: list[str]
+    health_status: str = "HEALTHY"
+    report_path: str | None = None
 
 
 class DailyPipeline:
@@ -227,6 +230,7 @@ class DailyPipeline:
         self.kill_switch = StrategyKillSwitch(self.config)
         self.mistake_analyzer = MistakeAnalyzer(self.config)
         self.bayesian_optimizer = BayesianParameterOptimizer(self.config)
+        self.monitor = Monitor(self.config)
         self.broker_client = broker_client or self._build_default_broker_client()
         self.order_manager = OrderManager(self.config, self.broker_client)
         self.state = self._load_state()
@@ -289,8 +293,9 @@ class DailyPipeline:
                 weekly_pnl=0.0,
                 monthly_pnl=0.0,
                 capital_scale_factor=self._current_capital_scale_factor(trading_date),
+                tracking_error_pct=0.0,
             )
-            return DailyPipelineResult(
+            result = DailyPipelineResult(
                 date=trading_date,
                 allocations=self.state.get("allocations", {"strategy_a": 0.5, "strategy_b": 0.5}),
                 approved_orders=[],
@@ -303,6 +308,7 @@ class DailyPipeline:
                 aborted=True,
                 learning_actions=[],
             )
+            return self._finalize_result(result)
 
         try:
             approved_order_objs, rejected_orders, rejection_reasons = self.risk_manager.check_pre_trade(
@@ -355,8 +361,10 @@ class DailyPipeline:
                 monthly_pnl=monthly_pnl,
                 discrepancies=discrepancies,
                 strategy_statuses=strategy_statuses,
+                capital_scale_factor=capital_scale_factor,
+                tracking_error_pct=0.0,
             )
-            return DailyPipelineResult(
+            result = DailyPipelineResult(
                 date=trading_date,
                 allocations=allocation_weights,
                 approved_orders=approved_orders,
@@ -369,6 +377,7 @@ class DailyPipeline:
                 aborted=True,
                 learning_actions=[],
             )
+            return self._finalize_result(result)
 
         try:
             self._update_open_trades(
@@ -386,6 +395,11 @@ class DailyPipeline:
         post_daily_pnl, post_weekly_pnl, post_monthly_pnl = self._compute_mark_to_market_pnl(
             trading_date=trading_date,
             current_portfolio_value=end_portfolio_value,
+        )
+        tracking_error_pct = self._tracking_error_pct(
+            trading_date=trading_date,
+            daily_pnl=post_daily_pnl,
+            end_portfolio_value=end_portfolio_value,
         )
         circuit_action, circuit_reason = self.risk_manager.check_circuit_breakers(
             daily_pnl=post_daily_pnl,
@@ -407,6 +421,7 @@ class DailyPipeline:
             "allocation_strategy_a": float(allocation_weights["strategy_a"]),
             "allocation_strategy_b": float(allocation_weights["strategy_b"]),
             "capital_scale_factor": float(capital_scale_factor),
+            "tracking_error_pct": float(tracking_error_pct),
             "strategy_a_status": strategy_statuses["strategy_a"],
             "strategy_b_status": strategy_statuses["strategy_b"],
             "rejected_order_count": len(rejected_orders),
@@ -466,8 +481,9 @@ class DailyPipeline:
             learning_actions=learning_actions,
             circuit_action=circuit_action,
             capital_scale_factor=capital_scale_factor,
+            tracking_error_pct=tracking_error_pct,
         )
-        return DailyPipelineResult(
+        result = DailyPipelineResult(
             date=trading_date,
             allocations=allocation_weights,
             approved_orders=approved_orders,
@@ -480,6 +496,7 @@ class DailyPipeline:
             aborted=False,
             learning_actions=learning_actions,
         )
+        return self._finalize_result(result)
 
     def run_daily_summary(self) -> dict[str, Any]:
         if not self.state["daily_records"]:
@@ -487,6 +504,8 @@ class DailyPipeline:
                 "message": "No daily pipeline history available yet.",
                 "positions": self.state.get("last_positions", {}) or self.broker_client.get_positions(),
                 "capital_scale_factor": 1.0 if self.mode != "live" else self._current_capital_scale_factor(self._resolve_trading_date(None)),
+                "health_status": "UNKNOWN",
+                "tracking_error_pct": 0.0,
             }
         latest = self.state["daily_records"][-1]
         date = pd.Timestamp(latest["date"])
@@ -508,6 +527,8 @@ class DailyPipeline:
             circuit_action=str(latest.get("circuit_action", "CONTINUE")),
             learning_actions=[],
             capital_scale_factor=float(latest.get("capital_scale_factor", 1.0)),
+            tracking_error_pct=float(latest.get("tracking_error_pct", 0.0)),
+            health_status=str(latest.get("health_status", "UNKNOWN")),
         )
         return summary
 
@@ -929,6 +950,8 @@ class DailyPipeline:
         learning_actions: list[str] | None = None,
         circuit_action: str = "CONTINUE",
         capital_scale_factor: float = 1.0,
+        tracking_error_pct: float = 0.0,
+        health_status: str = "UNKNOWN",
     ) -> dict[str, Any]:
         portfolio_value = float(self.broker_client.get_portfolio_value())
         ytd_pnl = self._year_to_date_pnl(trading_date, daily_pnl)
@@ -955,6 +978,8 @@ class DailyPipeline:
             "regime_state": regime_state,
             "allocation_weights": allocations,
             "capital_scale_factor": float(capital_scale_factor),
+            "tracking_error_pct": float(tracking_error_pct),
+            "health_status": health_status,
             "strategy_statuses": strategy_statuses or {"strategy_a": "ACTIVE", "strategy_b": "ACTIVE"},
             "alerts": alerts,
             "discrepancies": discrepancies or [],
@@ -972,6 +997,47 @@ class DailyPipeline:
             return 1.0
         scaler = CapitalScaler(self.config, self._live_start_date(trading_date))
         return scaler.get_scale_factor(trading_date)
+
+    def _tracking_error_pct(
+        self,
+        *,
+        trading_date: pd.Timestamp,
+        daily_pnl: float,
+        end_portfolio_value: float,
+    ) -> float:
+        previous_value = max(end_portfolio_value - daily_pnl, 1e-9)
+        actual_return = float(daily_pnl / previous_value)
+        expected_return = float(self.combined_returns.get(trading_date, 0.0))
+        return float(abs(actual_return - expected_return))
+
+    def _finalize_result(self, result: DailyPipelineResult) -> DailyPipelineResult:
+        health = self.monitor.daily_health_check(result)
+        summary = dict(result.daily_summary)
+        summary["health_status"] = health.status
+        summary["tracking_error_pct"] = health.tracking_error_pct
+        updated = replace(
+            result,
+            daily_summary=summary,
+            health_status=health.status,
+        )
+        report_path = self.monitor.generate_daily_email(updated, health)
+        severity = "INFO" if health.status == "HEALTHY" else "WARNING" if health.status == "DEGRADED" else "CRITICAL"
+        self.monitor.send_alert(
+            severity,
+            f"Daily pipeline {health.status} for {result.date.date().isoformat()}",
+            {
+                "issues": health.issues,
+                "tracking_error_pct": health.tracking_error_pct,
+                "alerts": result.alerts,
+            },
+        )
+        updated = replace(updated, report_path=str(report_path))
+        if self.state["daily_records"] and self.state["daily_records"][-1]["date"] == result.date.date().isoformat():
+            self.state["daily_records"][-1]["health_status"] = health.status
+            self.state["daily_records"][-1]["tracking_error_pct"] = health.tracking_error_pct
+            self.state["daily_records"][-1]["report_path"] = str(report_path)
+            self._save_state()
+        return updated
 
     def _is_week_end(self, trading_date: pd.Timestamp) -> bool:
         return self._period_boundary(trading_date, "week")
