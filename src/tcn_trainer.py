@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import os
 import random
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import numpy as np
@@ -49,7 +47,6 @@ class TCNTrainer:
         _configure_torch_threads(1)
         self.device = torch.device("cpu")
         self.validation_improvement_tol = 1e-4
-        self.max_workers = min(self.config.n_ensemble, max(os.cpu_count() or 1, 1))
 
     def prepare_dataset(
         self,
@@ -194,34 +191,17 @@ class TCNTrainer:
         train_bundle: SequenceDatasetBundle,
         val_bundle: SequenceDatasetBundle,
     ) -> list[ModelTrainingArtifact]:
-        seeds = list(range(self.config.n_ensemble))
-        if self.max_workers <= 1 or len(seeds) <= 1:
-            return [
-                _train_model_core(
-                    config=self.config,
-                    train_inputs=train_bundle.inputs,
-                    train_targets=train_bundle.targets,
-                    val_inputs=val_bundle.inputs,
-                    val_targets=val_bundle.targets,
-                    seed=seed,
-                )
-                for seed in seeds
-            ]
-
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = [
-                executor.submit(
-                    _train_model_core,
-                    self.config,
-                    train_bundle.inputs,
-                    train_bundle.targets,
-                    val_bundle.inputs,
-                    val_bundle.targets,
-                    seed,
-                )
-                for seed in seeds
-            ]
-            return [future.result() for future in futures]
+        return [
+            _train_model_core(
+                config=self.config,
+                train_inputs=train_bundle.inputs,
+                train_targets=train_bundle.targets,
+                val_inputs=val_bundle.inputs,
+                val_targets=val_bundle.targets,
+                seed=seed,
+            )
+            for seed in range(self.config.n_ensemble)
+        ]
 
 
 def _train_model_core(
