@@ -376,7 +376,12 @@ def _run_phase2_baseline_backtest(config) -> BacktestResult:
     baseline_config_path = config.paths.project_root / "config/phase2_cleared.yaml"
     baseline_payload = yaml.safe_load(baseline_config_path.read_text(encoding="utf-8"))
     baseline_payload["phase4"] = config_to_dict(config)["phase4"]
-    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as handle:
+    with tempfile.NamedTemporaryFile(
+        "w",
+        suffix=".yaml",
+        delete=False,
+        dir=baseline_config_path.parent,
+    ) as handle:
         handle.write(yaml.safe_dump(baseline_payload, sort_keys=False))
         baseline_runtime_path = Path(handle.name)
     try:
