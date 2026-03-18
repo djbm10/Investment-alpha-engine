@@ -10,3 +10,4 @@ outputs/
 .env
 .DS_Store
 config/credentials.yaml
+config/live_confirmed.txt

@@ -183,6 +183,24 @@ class Phase7Config:
 
 
 @dataclass(frozen=True)
+class DeploymentScalingScheduleConfig:
+    weeks_1_4: float
+    weeks_5_12: float
+    weeks_13_24: float
+    weeks_25_plus: float
+
+
+@dataclass(frozen=True)
+class DeploymentConfig:
+    mode: str
+    min_capital: float
+    live_confirmation_path: Path
+    phase7_gate_artifact: Path
+    paper_state_path: Path
+    scaling_schedule: DeploymentScalingScheduleConfig
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     price_source: str
     tickers: list[str]
@@ -199,6 +217,7 @@ class PipelineConfig:
     phase5: Phase5Config
     learning: LearningConfig
     phase7: Phase7Config
+    deployment: DeploymentConfig
 
 
 def load_config(config_path: str | Path) -> PipelineConfig:
@@ -268,6 +287,7 @@ def load_config(config_path: str | Path) -> PipelineConfig:
     phase5 = _load_phase5_config(data.get("phase5", {}))
     learning = _load_learning_config(data.get("learning", {}))
     phase7 = _load_phase7_config(project_root, data.get("phase7", {}))
+    deployment = _load_deployment_config(project_root, data.get("deployment", {}))
 
     return PipelineConfig(
         price_source=str(data["price_source"]),
@@ -285,6 +305,7 @@ def load_config(config_path: str | Path) -> PipelineConfig:
         phase5=phase5,
         learning=learning,
         phase7=phase7,
+        deployment=deployment,
     )
 
 
@@ -467,3 +488,20 @@ def _load_phase7_config(project_root: Path, data: dict[str, object]) -> Phase7Co
 
 def _conservative_cap(value: float, hard_limit: float) -> float:
     return float(min(value, hard_limit))
+
+
+def _load_deployment_config(project_root: Path, data: dict[str, object]) -> DeploymentConfig:
+    scaling_data = data.get("scaling_schedule", {})
+    return DeploymentConfig(
+        mode=str(data.get("mode", "paper")),
+        min_capital=float(data.get("min_capital", 5000)),
+        live_confirmation_path=_resolve_path(project_root, str(data.get("live_confirmation_path", "config/live_confirmed.txt"))),
+        phase7_gate_artifact=_resolve_path(project_root, str(data.get("phase7_gate_artifact", "config/phase7_cleared.yaml"))),
+        paper_state_path=_resolve_path(project_root, str(data.get("paper_state_path", "data/processed/phase7_state.json"))),
+        scaling_schedule=DeploymentScalingScheduleConfig(
+            weeks_1_4=float(scaling_data.get("weeks_1_4", 0.25)),
+            weeks_5_12=float(scaling_data.get("weeks_5_12", 0.50)),
+            weeks_13_24=float(scaling_data.get("weeks_13_24", 0.75)),
+            weeks_25_plus=float(scaling_data.get("weeks_25_plus", 1.00)),
+        ),
+    )

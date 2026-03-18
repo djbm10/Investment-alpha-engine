@@ -13,9 +13,9 @@ Build the algorithmic trading system described in docs/plan.md.
 - Continually update the `Current Focus` section whenever work progresses so it always shows the active task and next step.
 
 ## Current Focus
-Phase 7: Code Complete, Gate Pending
-- Active task: Phase 7 implementation is complete; the remaining work is the 90-day Alpaca paper-trading gate evaluation
-- Next step: Create `config/credentials.yaml` from the template, add Alpaca paper keys, schedule the daily run, and begin paper trading
+Phase 8: Infrastructure Build In Progress
+- Active task: Add deployment-mode switching and live-readiness checks so going live is a controlled config change after the paper gate clears
+- Next step: Verify the deployment guardrails, then add capital scaling for the live rollout
 
 ## Tasks
 1. Set up data ingestion using yfinance

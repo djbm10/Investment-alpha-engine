@@ -8,6 +8,7 @@ from .diagnostics.asset_contribution import diagnose_asset_contribution
 from .diagnostics.monthly_analysis import diagnose_monthly_performance
 from .diagnostics.regime_false_positives import diagnose_regime_false_positives
 from .diagnostics.regime_validation import validate_regime_detector
+from .deployment import check_live_readiness, deploy_live_mode
 from .learning.bayesian_optimizer import run_bayesian_update
 from .learning.learning_validation import validate_learning_loops
 from .learning.mistake_analyzer import run_mistake_analysis
@@ -59,6 +60,8 @@ def parse_args() -> argparse.Namespace:
     run_daily_summary_parser.add_argument("--mode", help="Override the configured broker mode for this run.")
     simulation_parser = subparsers.add_parser("run-simulation", help="Run the Phase 7 historical daily-pipeline simulation.")
     simulation_parser.add_argument("--days", type=int, default=30, help="Number of trading days to replay in simulation mode.")
+    subparsers.add_parser("check-live-readiness", help="Validate whether the system is ready to switch from paper to live.")
+    subparsers.add_parser("deploy-live", help="Run the readiness checks and switch deployment mode to live if all checks pass.")
     subparsers.add_parser("diagnose-monthly", help="Analyze the monthly P&L distribution for the current best Phase 2 run.")
     subparsers.add_parser("diagnose-assets", help="Analyze per-asset trade contribution for the latest Phase 2 run.")
     subparsers.add_parser("diagnose-fp", help="Analyze false positive regime flags for the latest Phase 3 run.")
@@ -218,6 +221,20 @@ def main() -> int:
         print(f"Report: {result.output_path}")
         return 0
 
+    if command == "check-live-readiness":
+        ready, issues = check_live_readiness(config_path)
+        print(f"ready: {ready}")
+        for issue in issues:
+            print(f"issue: {issue}")
+        return 0 if ready else 1
+
+    if command == "deploy-live":
+        ready, issues = deploy_live_mode(config_path)
+        print(f"deployed: {ready}")
+        for issue in issues:
+            print(f"issue: {issue}")
+        return 0 if ready else 1
+
     if command == "diagnose-monthly":
         result = diagnose_monthly_performance(config_path)
         print("Monthly diagnostics completed.")
@@ -320,7 +337,7 @@ def _resolve_config_path(config_path: str, command: str) -> str:
     phase4_commands = {"train-tcn", "run-phase4", "verify-phase4"}
     phase5_commands = {"run-trend-strategy", "run-phase5", "verify-phase5"}
     phase6_commands = {"run-bayesian-update", "analyze-mistakes", "validate-learning"}
-    phase7_commands = {"run-daily", "run-daily-summary", "run-simulation"}
+    phase7_commands = {"run-daily", "run-daily-summary", "run-simulation", "check-live-readiness", "deploy-live"}
     if config_path == default_config and command in phase3_commands:
         phase3_config = Path("config/phase3.yaml")
         if phase3_config.exists():
@@ -338,6 +355,9 @@ def _resolve_config_path(config_path: str, command: str) -> str:
         if phase6_config.exists():
             return str(phase6_config)
     if config_path == default_config and command in phase7_commands:
+        phase8_config = Path("config/phase8.yaml")
+        if phase8_config.exists():
+            return str(phase8_config)
         phase7_config = Path("config/phase7.yaml")
         if phase7_config.exists():
             return str(phase7_config)
