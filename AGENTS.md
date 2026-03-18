@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 7: Infrastructure Build In Progress
-- Active task: Implement the hard risk limit engine and Phase 7 configuration on top of the frozen Phase 6 baseline
-- Next step: Verify synthetic risk-limit scenarios, then add the broker and order-management layer
+- Active task: Build the mock broker and order-management layer on top of the new hard risk engine
+- Next step: Verify order generation, fills, and reconciliation, then build the daily pipeline orchestration
 
 ## Tasks
 1. Set up data ingestion using yfinance
