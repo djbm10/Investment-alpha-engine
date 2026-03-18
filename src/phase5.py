@@ -10,6 +10,7 @@ import pandas as pd
 
 from .config_loader import load_config
 from .portfolio_allocator import DynamicAllocator
+from .trade_journal import TradeJournal
 from .trend_strategy import (
     TrendStrategyBacktest,
     backtest_trend_strategy,
@@ -36,13 +37,18 @@ class Phase5VerificationResult:
 
 def run_phase5_pipeline(config_path: str | Path) -> Phase5Result:
     config = load_config(config_path)
-    strategy_a = load_phase2_baseline_backtest(config)
-    trend_prices = load_or_fetch_trend_price_history(config)
-    strategy_b = backtest_trend_strategy(
-        config=config,
-        trend_prices=trend_prices,
-        strategy_a_returns=strategy_a.daily_results.set_index("date")["net_portfolio_return"],
-    )
+    journal = TradeJournal(config.paths.project_root / "data/trade_journal.db")
+    try:
+        strategy_a = load_phase2_baseline_backtest(config, trade_journal=journal)
+        trend_prices = load_or_fetch_trend_price_history(config)
+        strategy_b = backtest_trend_strategy(
+            config=config,
+            trend_prices=trend_prices,
+            strategy_a_returns=strategy_a.daily_results.set_index("date")["net_portfolio_return"],
+            trade_journal=journal,
+        )
+    finally:
+        journal.close()
 
     combined_daily_results, allocation_history = _run_combined_backtest(config, strategy_a, strategy_b)
     trade_log = _combine_trade_logs(strategy_a.trade_log, strategy_b.trade_log)

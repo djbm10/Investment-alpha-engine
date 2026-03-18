@@ -66,7 +66,9 @@ def compute_graph_signals(
 ) -> pd.DataFrame:
     price_matrix = build_price_matrix(price_history, tickers)
     log_returns = np.log(price_matrix / price_matrix.shift(1)).dropna(how="any")
+    simple_returns = price_matrix.pct_change()
     forward_returns = price_matrix.pct_change().shift(-1)
+    trailing_volatility = simple_returns.shift(1).rolling(20, min_periods=20).std(ddof=0)
 
     if len(log_returns) < config.lookback_window:
         raise ValueError("Not enough return history to build the graph engine.")
@@ -81,6 +83,7 @@ def compute_graph_signals(
         window = log_returns.iloc[end_idx - config.lookback_window + 1 : end_idx + 1]
         current_date = log_returns.index[end_idx]
         current_return = window.iloc[-1].to_numpy(dtype=float)
+        current_prices = price_matrix.loc[current_date]
 
         snapshot = active_graph_matrices[pd.Timestamp(current_date)]
         correlation = snapshot.correlation_matrix
@@ -105,18 +108,21 @@ def compute_graph_signals(
         )
         residual = current_return - expected_return
         forward_row = forward_returns.loc[current_date]
+        trailing_vol_row = trailing_volatility.loc[current_date]
 
         for ticker_idx, ticker in enumerate(log_returns.columns):
             rows.append(
                 {
                     "date": current_date,
                     "ticker": ticker,
+                    "adj_close": _optional_float(current_prices[ticker]),
                     "current_return": float(current_return[ticker_idx]),
                     "expected_return": float(expected_return[ticker_idx]),
                     "residual": float(residual[ticker_idx]),
                     "sigma": float(sigma),
                     "avg_pairwise_corr": float(avg_pairwise_corr),
                     "node_avg_corr": float(node_avg_corr[ticker_idx]),
+                    "trailing_vol_20d": _optional_float(trailing_vol_row[ticker]),
                     "node_tradeable": bool(node_tradeable[ticker_idx]),
                     "graph_density": float(density),
                     "edge_density": float(density),

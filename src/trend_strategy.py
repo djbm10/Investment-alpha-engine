@@ -13,6 +13,7 @@ from .graph_engine import compute_graph_signals
 from .ingestion import download_universe_data
 from .logging_utils import setup_logger
 from .storage import ensure_output_directories
+from .trade_journal import TradeJournal
 from .validation import build_issue_report, build_quality_report, validate_prices
 
 
@@ -35,11 +36,16 @@ def run_trend_strategy_pipeline(config_path: str | Path) -> TrendStrategyResult:
     config = load_config(config_path)
     trend_prices = load_or_fetch_trend_price_history(config)
     strategy_a = load_phase2_baseline_backtest(config)
-    trend_result = backtest_trend_strategy(
-        config=config,
-        trend_prices=trend_prices,
-        strategy_a_returns=strategy_a.daily_results.set_index("date")["net_portfolio_return"],
-    )
+    journal = TradeJournal(config.paths.project_root / "data/trade_journal.db")
+    try:
+        trend_result = backtest_trend_strategy(
+            config=config,
+            trend_prices=trend_prices,
+            strategy_a_returns=strategy_a.daily_results.set_index("date")["net_portfolio_return"],
+            trade_journal=journal,
+        )
+    finally:
+        journal.close()
     output_paths = _save_trend_outputs(config.paths.processed_dir, trend_result)
     return TrendStrategyResult(summary_metrics=trend_result.summary_metrics, output_paths=output_paths)
 
@@ -86,7 +92,10 @@ def load_or_fetch_trend_price_history(config: PipelineConfig) -> pd.DataFrame:
     return valid_rows.sort_values(["date", "ticker"]).reset_index(drop=True)
 
 
-def load_phase2_baseline_backtest(config: PipelineConfig) -> TrendStrategyBacktest:
+def load_phase2_baseline_backtest(
+    config: PipelineConfig,
+    trade_journal: TradeJournal | None = None,
+) -> TrendStrategyBacktest:
     validated_path = config.paths.processed_dir / "sector_etf_prices_validated.csv"
     if not validated_path.exists():
         raise ValueError(f"Validated Phase 2 price history was not found at '{validated_path}'.")
@@ -97,7 +106,13 @@ def load_phase2_baseline_backtest(config: PipelineConfig) -> TrendStrategyBackte
     ].copy()
     daily_signals = compute_graph_signals(price_history, config.tickers, config.phase2)
     scaled_signals = scale_signals_to_risk_budget(daily_signals, config.phase2).scaled_signals
-    backtest = run_walk_forward_backtest(scaled_signals, config.phase2, run_id="phase5-strategy-a")
+    backtest = run_walk_forward_backtest(
+        scaled_signals,
+        config.phase2,
+        run_id="phase5-strategy-a",
+        trade_journal=trade_journal,
+        strategy_label="A",
+    )
     return TrendStrategyBacktest(
         daily_positions=scaled_signals.loc[:, ["date", "ticker", "target_position"]].copy(),
         daily_results=backtest.daily_results.copy(),
@@ -112,6 +127,7 @@ def backtest_trend_strategy(
     config: PipelineConfig,
     trend_prices: pd.DataFrame,
     strategy_a_returns: pd.Series | None = None,
+    trade_journal: TradeJournal | None = None,
 ) -> TrendStrategyBacktest:
     tickers = list(config.phase5.trend_tickers)
     price_matrix = (
@@ -132,9 +148,11 @@ def backtest_trend_strategy(
     cash_return_daily = config.phase5.cash_return_annual / config.phase2.annualization_days
     daily_results, trade_log = _backtest_weight_matrix(
         target_weights=target_weights,
+        price_matrix=price_matrix.reindex(index=target_weights.index),
         forward_returns=forward_returns,
         trading_cost_bps=config.phase5.trend_cost_bps,
         cash_return_daily=cash_return_daily,
+        trade_journal=trade_journal,
     )
     monthly_results = build_generic_monthly_results(daily_results, config.phase2.min_training_months)
     summary_metrics = build_generic_summary_metrics(
@@ -292,9 +310,11 @@ def build_generic_summary_metrics(
 def _backtest_weight_matrix(
     *,
     target_weights: pd.DataFrame,
+    price_matrix: pd.DataFrame,
     forward_returns: pd.DataFrame,
     trading_cost_bps: float,
     cash_return_daily: float,
+    trade_journal: TradeJournal | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     previous_weights = pd.Series(0.0, index=target_weights.columns, dtype=float)
     states = {ticker: _new_position_state() for ticker in target_weights.columns}
@@ -306,6 +326,7 @@ def _backtest_weight_matrix(
         weights = target_weights.loc[date].fillna(0.0).astype(float)
         turnover = float((weights - previous_weights).abs().sum())
         gross_exposure = float(weights.sum())
+        concurrent_positions = int((weights > 0.0).sum())
         cash_weight = max(0.0, 1.0 - gross_exposure)
         gross_return = float((weights * forward_returns.loc[date]).sum()) + cash_weight * cash_return_daily
         transaction_cost = turnover * cost_rate
@@ -315,13 +336,25 @@ def _backtest_weight_matrix(
             state = states[ticker]
             desired_weight = float(weights[ticker])
             if state["is_open"] and desired_weight == 0.0:
-                trade_rows.append(_close_trade_row(ticker, date, state, cost_rate))
+                trade_row = _close_trade_row(
+                    ticker=ticker,
+                    exit_date=date,
+                    state=state,
+                    exit_price=float(price_matrix.at[date, ticker]),
+                    cost_rate=cost_rate,
+                )
+                trade_rows.append(trade_row)
+                if trade_journal is not None:
+                    trade_journal.log_trade(_trade_row_to_journal_payload(trade_row))
                 states[ticker] = _new_position_state()
             if not state["is_open"] and desired_weight > 0.0:
                 states[ticker] = {
                     "is_open": True,
                     "entry_date": date,
+                    "entry_price": float(price_matrix.at[date, ticker]),
                     "entry_weight": desired_weight,
+                    "portfolio_exposure_at_entry": gross_exposure,
+                    "concurrent_positions": concurrent_positions,
                     "current_weight": desired_weight,
                     "gross_return": 0.0,
                     "holding_days": 0,
@@ -353,7 +386,16 @@ def _backtest_weight_matrix(
         final_date = pd.Timestamp(target_weights.index[-1])
         for ticker, state in states.items():
             if state["is_open"]:
-                trade_rows.append(_close_trade_row(ticker, final_date, state, cost_rate))
+                trade_row = _close_trade_row(
+                    ticker=ticker,
+                    exit_date=final_date,
+                    state=state,
+                    exit_price=float(price_matrix.at[final_date, ticker]),
+                    cost_rate=cost_rate,
+                )
+                trade_rows.append(trade_row)
+                if trade_journal is not None:
+                    trade_journal.log_trade(_trade_row_to_journal_payload(trade_row))
 
     return pd.DataFrame(daily_rows), pd.DataFrame(trade_rows)
 
@@ -362,22 +404,38 @@ def _close_trade_row(
     ticker: str,
     exit_date: pd.Timestamp,
     state: dict[str, object],
+    exit_price: float,
     cost_rate: float,
 ) -> dict[str, object]:
     gross_return = float(state["gross_return"])
-    net_return = gross_return - (2.0 * cost_rate)
+    transaction_cost = 2.0 * cost_rate
+    net_return = gross_return - transaction_cost
     return {
         "trade_id": f"trend:{ticker}:{pd.Timestamp(state['entry_date']).date()}:{pd.Timestamp(exit_date).date()}",
         "ticker": ticker,
         "entry_date": state["entry_date"],
         "exit_date": exit_date,
         "position_direction": 1,
+        "direction": "long",
         "entry_zscore": np.nan,
         "exit_zscore": np.nan,
         "holding_days": int(state["holding_days"]),
         "entry_weight": float(state["entry_weight"]),
+        "entry_price": float(state["entry_price"]),
+        "exit_price": float(exit_price),
+        "entry_node_corr": np.nan,
+        "entry_regime": "TRADEABLE",
+        "exit_reason": "signal_flip",
         "gross_return": gross_return,
+        "transaction_cost": transaction_cost,
         "net_return": net_return,
+        "gross_pnl": gross_return,
+        "net_pnl": net_return,
+        "predicted_residual": np.nan,
+        "actual_residual": np.nan,
+        "prediction_error": np.nan,
+        "portfolio_exposure_at_entry": float(state["portfolio_exposure_at_entry"]),
+        "concurrent_positions": int(state["concurrent_positions"]),
     }
 
 
@@ -385,10 +443,39 @@ def _new_position_state() -> dict[str, object]:
     return {
         "is_open": False,
         "entry_date": None,
+        "entry_price": 0.0,
         "entry_weight": 0.0,
+        "portfolio_exposure_at_entry": 0.0,
+        "concurrent_positions": 0,
         "current_weight": 0.0,
         "gross_return": 0.0,
         "holding_days": 0,
+    }
+
+
+def _trade_row_to_journal_payload(trade_row: dict[str, object]) -> dict[str, object]:
+    return {
+        "trade_id": trade_row["trade_id"],
+        "strategy": "B",
+        "asset": trade_row["ticker"],
+        "direction": trade_row["direction"],
+        "entry_date": trade_row["entry_date"],
+        "exit_date": trade_row["exit_date"],
+        "holding_days": trade_row["holding_days"],
+        "entry_price": trade_row["entry_price"],
+        "exit_price": trade_row["exit_price"],
+        "entry_zscore": trade_row["entry_zscore"],
+        "entry_node_corr": trade_row["entry_node_corr"],
+        "entry_regime": trade_row["entry_regime"],
+        "exit_reason": trade_row["exit_reason"],
+        "gross_pnl": trade_row["gross_pnl"],
+        "transaction_cost": trade_row["transaction_cost"],
+        "net_pnl": trade_row["net_pnl"],
+        "predicted_residual": trade_row["predicted_residual"],
+        "actual_residual": trade_row["actual_residual"],
+        "prediction_error": trade_row["prediction_error"],
+        "portfolio_exposure_at_entry": trade_row["portfolio_exposure_at_entry"],
+        "concurrent_positions": trade_row["concurrent_positions"],
     }
 
 

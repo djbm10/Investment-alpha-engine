@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from uuid import uuid4
 
 import numpy as np
 import pandas as pd
 
 from .config_loader import Phase2Config, Phase3Config
 from .graph_engine import apply_signal_rules
+from .trade_journal import TradeJournal
 
 
 @dataclass(frozen=True)
@@ -133,11 +133,14 @@ def run_walk_forward_backtest(
     daily_signals: pd.DataFrame,
     config: Phase2Config,
     run_id: str,
+    trade_journal: TradeJournal | None = None,
+    strategy_label: str = "A",
 ) -> BacktestResult:
     if daily_signals.empty:
         raise ValueError("No graph signals available for backtesting.")
 
     tickers = sorted(daily_signals["ticker"].unique().tolist())
+    signal_lookup = daily_signals.set_index(["date", "ticker"]).sort_index()
     target_frame = _pivot_frame(daily_signals, "target_position", tickers)
     zscore_frame = _pivot_frame(daily_signals, "zscore", tickers)
     forward_return_frame = _pivot_frame(daily_signals, "forward_return", tickers)
@@ -161,13 +164,16 @@ def run_walk_forward_backtest(
 
     for date in valid_dates:
         desired_weights = pd.Series(0.0, index=tickers, dtype=float)
+        exit_reasons: dict[str, str] = {}
 
         for ticker in tickers:
             state = states[ticker]
             zscore = zscore_frame.at[date, ticker]
             if state["is_open"]:
-                if _should_exit(state, zscore, config):
+                exit_reason = _determine_exit_reason(state, zscore, config)
+                if exit_reason is not None:
                     desired_weights[ticker] = 0.0
+                    exit_reasons[ticker] = exit_reason
                 else:
                     desired_weights[ticker] = state["direction"] * state["current_weight"]
             else:
@@ -179,12 +185,28 @@ def run_walk_forward_backtest(
         if gross_exposure > 1.0:
             desired_weights = desired_weights / gross_exposure
             gross_exposure = 1.0
+        concurrent_positions = int((desired_weights != 0.0).sum())
 
         for ticker in tickers:
             state = states[ticker]
             desired_direction = int(np.sign(desired_weights[ticker]))
             if state["is_open"] and desired_direction == 0:
-                trade_rows.append(_close_trade_row(run_id, ticker, date, zscore_frame.at[date, ticker], state, total_cost_rate))
+                exit_snapshot = _signal_snapshot(signal_lookup, date, ticker)
+                trade_row = _close_trade_row(
+                    run_id=run_id,
+                    ticker=ticker,
+                    exit_date=date,
+                    exit_zscore=zscore_frame.at[date, ticker],
+                    exit_reason=exit_reasons.get(ticker, "signal_flip"),
+                    state=state,
+                    exit_snapshot=exit_snapshot,
+                    total_cost_rate=total_cost_rate,
+                )
+                trade_rows.append(trade_row)
+                if trade_journal is not None:
+                    trade_journal.log_trade(
+                        _trade_row_to_journal_payload(trade_row, strategy_label=strategy_label)
+                    )
                 states[ticker] = _new_position_state()
 
         for ticker in tickers:
@@ -192,12 +214,20 @@ def run_walk_forward_backtest(
             desired_weight = float(abs(desired_weights[ticker]))
             desired_direction = int(np.sign(desired_weights[ticker]))
             if not state["is_open"] and desired_direction != 0:
+                entry_snapshot = _signal_snapshot(signal_lookup, date, ticker)
                 states[ticker] = {
                     "is_open": True,
                     "direction": desired_direction,
                     "entry_date": date,
                     "entry_zscore": _optional_float(zscore_frame.at[date, ticker]),
+                    "entry_residual": _optional_float(entry_snapshot.get("residual")),
+                    "entry_node_corr": _optional_float(entry_snapshot.get("node_avg_corr")),
+                    "entry_regime": str(entry_snapshot.get("graph_regime", "TRADEABLE")),
+                    "entry_price": _optional_float(entry_snapshot.get("adj_close")),
+                    "entry_predicted_residual": _optional_float(entry_snapshot.get("predicted_residual_mean")),
                     "entry_weight": desired_weight,
+                    "portfolio_exposure_at_entry": float(gross_exposure),
+                    "concurrent_positions": concurrent_positions,
                     "current_weight": desired_weight,
                     "gross_return": 0.0,
                     "holding_days": 0,
@@ -234,7 +264,22 @@ def run_walk_forward_backtest(
         final_date = valid_dates[-1]
         for ticker, state in states.items():
             if state["is_open"]:
-                trade_rows.append(_close_trade_row(run_id, ticker, final_date, zscore_frame.at[final_date, ticker], state, total_cost_rate))
+                exit_snapshot = _signal_snapshot(signal_lookup, final_date, ticker)
+                trade_row = _close_trade_row(
+                    run_id=run_id,
+                    ticker=ticker,
+                    exit_date=final_date,
+                    exit_zscore=zscore_frame.at[final_date, ticker],
+                    exit_reason="signal_flip",
+                    state=state,
+                    exit_snapshot=exit_snapshot,
+                    total_cost_rate=total_cost_rate,
+                )
+                trade_rows.append(trade_row)
+                if trade_journal is not None:
+                    trade_journal.log_trade(
+                        _trade_row_to_journal_payload(trade_row, strategy_label=strategy_label)
+                    )
 
     daily_results = pd.DataFrame(daily_rows)
     trade_log = pd.DataFrame(trade_rows)
@@ -295,7 +340,14 @@ def _new_position_state() -> dict[str, object]:
         "direction": 0,
         "entry_date": None,
         "entry_zscore": None,
+        "entry_residual": None,
+        "entry_node_corr": None,
+        "entry_regime": None,
+        "entry_price": None,
+        "entry_predicted_residual": None,
         "entry_weight": 0.0,
+        "portfolio_exposure_at_entry": 0.0,
+        "concurrent_positions": 0,
         "current_weight": 0.0,
         "gross_return": 0.0,
         "holding_days": 0,
@@ -318,17 +370,23 @@ def _neutralize_relative_weights(weights: pd.Series) -> pd.Series:
     return adjusted
 
 
-def _should_exit(state: dict[str, object], zscore: float | None, config: Phase2Config) -> bool:
+def _determine_exit_reason(
+    state: dict[str, object],
+    zscore: float | None,
+    config: Phase2Config,
+) -> str | None:
     direction = int(state["direction"])
     hit_reversion = False
     if zscore is not None and not pd.isna(zscore):
         hit_reversion = (direction == 1 and zscore >= 0) or (direction == -1 and zscore <= 0)
 
-    return (
-        hit_reversion
-        or float(state["gross_return"]) <= -config.stop_loss
-        or int(state["holding_days"]) >= config.max_holding_days
-    )
+    if hit_reversion:
+        return "reversion"
+    if float(state["gross_return"]) <= -config.stop_loss:
+        return "stop_loss"
+    if int(state["holding_days"]) >= config.max_holding_days:
+        return "max_hold"
+    return None
 
 
 def _close_trade_row(
@@ -336,12 +394,20 @@ def _close_trade_row(
     ticker: str,
     exit_date: pd.Timestamp,
     exit_zscore: float | None,
+    exit_reason: str,
     state: dict[str, object],
+    exit_snapshot: dict[str, object],
     total_cost_rate: float,
 ) -> dict[str, object]:
-    trade_id = f"{run_id}:{ticker}:{pd.Timestamp(state['entry_date']).date()}:{uuid4()}"
+    trade_id = (
+        f"{run_id}:{ticker}:{pd.Timestamp(state['entry_date']).date()}:"
+        f"{pd.Timestamp(exit_date).date()}:{int(state['direction'])}"
+    )
     gross_return = float(state["gross_return"])
-    net_return = gross_return - (2.0 * total_cost_rate)
+    transaction_cost = 2.0 * total_cost_rate
+    net_return = gross_return - transaction_cost
+    predicted_residual = _optional_float(state.get("entry_predicted_residual"))
+    actual_residual = _optional_float(exit_snapshot.get("residual"))
     return {
         "trade_id": trade_id,
         "run_id": run_id,
@@ -349,12 +415,73 @@ def _close_trade_row(
         "entry_date": state["entry_date"],
         "exit_date": exit_date,
         "position_direction": int(state["direction"]),
+        "direction": "long" if int(state["direction"]) == 1 else "short",
         "entry_zscore": _optional_float(state["entry_zscore"]),
         "exit_zscore": _optional_float(exit_zscore),
         "holding_days": int(state["holding_days"]),
         "entry_weight": float(state["entry_weight"]),
+        "entry_price": _optional_float(state.get("entry_price")),
+        "exit_price": _optional_float(exit_snapshot.get("adj_close")),
+        "entry_node_corr": _optional_float(state.get("entry_node_corr")),
+        "entry_regime": str(state.get("entry_regime", "TRADEABLE")),
+        "exit_reason": exit_reason,
         "gross_return": gross_return,
+        "transaction_cost": transaction_cost,
         "net_return": net_return,
+        "gross_pnl": gross_return,
+        "net_pnl": net_return,
+        "predicted_residual": predicted_residual,
+        "actual_residual": actual_residual,
+        "prediction_error": (
+            None
+            if predicted_residual is None or actual_residual is None
+            else float(actual_residual - predicted_residual)
+        ),
+        "portfolio_exposure_at_entry": float(state.get("portfolio_exposure_at_entry", 0.0)),
+        "concurrent_positions": int(state.get("concurrent_positions", 0)),
+    }
+
+
+def _signal_snapshot(
+    signal_lookup: pd.DataFrame,
+    date: pd.Timestamp,
+    ticker: str,
+) -> dict[str, object]:
+    if (date, ticker) not in signal_lookup.index:
+        return {}
+    snapshot = signal_lookup.loc[(date, ticker)]
+    if isinstance(snapshot, pd.DataFrame):
+        snapshot = snapshot.iloc[-1]
+    return snapshot.to_dict()
+
+
+def _trade_row_to_journal_payload(
+    trade_row: dict[str, object],
+    *,
+    strategy_label: str,
+) -> dict[str, object]:
+    return {
+        "trade_id": trade_row["trade_id"],
+        "strategy": strategy_label,
+        "asset": trade_row["ticker"],
+        "direction": trade_row["direction"],
+        "entry_date": trade_row["entry_date"],
+        "exit_date": trade_row["exit_date"],
+        "holding_days": trade_row["holding_days"],
+        "entry_price": trade_row.get("entry_price"),
+        "exit_price": trade_row.get("exit_price"),
+        "entry_zscore": trade_row.get("entry_zscore"),
+        "entry_node_corr": trade_row.get("entry_node_corr"),
+        "entry_regime": trade_row.get("entry_regime"),
+        "exit_reason": trade_row.get("exit_reason"),
+        "gross_pnl": trade_row.get("gross_pnl", trade_row.get("gross_return")),
+        "transaction_cost": trade_row.get("transaction_cost", 0.0),
+        "net_pnl": trade_row.get("net_pnl", trade_row.get("net_return")),
+        "predicted_residual": trade_row.get("predicted_residual"),
+        "actual_residual": trade_row.get("actual_residual"),
+        "prediction_error": trade_row.get("prediction_error"),
+        "portfolio_exposure_at_entry": trade_row.get("portfolio_exposure_at_entry"),
+        "concurrent_positions": trade_row.get("concurrent_positions"),
     }
 
 
