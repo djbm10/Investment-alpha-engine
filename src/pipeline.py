@@ -259,6 +259,34 @@ class DailyPipeline:
         discrepancies: list[dict[str, Any]] = []
 
         trading_date = self._resolve_trading_date(date)
+        halt_flag_path = self.config.paths.log_dir / "emergency_halt.flag"
+        if halt_flag_path.exists():
+            alerts.append(f"Emergency halt active: {halt_flag_path}")
+            summary = self._build_daily_summary(
+                trading_date=trading_date,
+                current_positions=self.broker_client.get_positions(),
+                allocations=self.state.get("allocations", {"strategy_a": 0.5, "strategy_b": 0.5}),
+                alerts=alerts,
+                daily_pnl=0.0,
+                weekly_pnl=0.0,
+                monthly_pnl=0.0,
+                capital_scale_factor=self._current_capital_scale_factor(trading_date),
+                tracking_error_pct=0.0,
+            )
+            result = DailyPipelineResult(
+                date=trading_date,
+                allocations=self.state.get("allocations", {"strategy_a": 0.5, "strategy_b": 0.5}),
+                approved_orders=[],
+                rejected_orders=[],
+                fills=[],
+                discrepancies=[],
+                alerts=alerts,
+                daily_summary=summary,
+                manual_review=False,
+                aborted=True,
+                learning_actions=[],
+            )
+            return self._finalize_result(result)
         if any(record["date"] == trading_date.date().isoformat() for record in self.state["daily_records"]):
             raise ValueError(f"Trading date {trading_date.date().isoformat()} already exists in the Phase 7 state.")
 
@@ -1053,6 +1081,7 @@ class DailyPipeline:
             self.state["daily_records"][-1]["health_status"] = health.status
             self.state["daily_records"][-1]["tracking_error_pct"] = health.tracking_error_pct
             self.state["daily_records"][-1]["report_path"] = str(report_path)
+            self.state["daily_records"][-1]["learning_actions"] = list(updated.learning_actions)
             self._save_state()
         return updated
 

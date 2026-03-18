@@ -12,6 +12,7 @@ from .deployment import check_live_readiness, deploy_live_mode
 from .learning.bayesian_optimizer import run_bayesian_update
 from .learning.learning_validation import validate_learning_loops
 from .learning.mistake_analyzer import run_mistake_analysis
+from .operations import emergency_halt, verify_phase7_gate
 from .performance_tracker import build_performance_summary, generate_performance_report
 from .pipeline import (
     initialize_database,
@@ -69,6 +70,9 @@ def parse_args() -> argparse.Namespace:
     start_scheduler_parser.add_argument("--mode", help="Override the configured deployment mode for scheduled daily runs.")
     subparsers.add_parser("check-live-readiness", help="Validate whether the system is ready to switch from paper to live.")
     subparsers.add_parser("deploy-live", help="Run the readiness checks and switch deployment mode to live if all checks pass.")
+    subparsers.add_parser("verify-phase7-gate", help="Verify the 90-day Phase 7 paper-trading gate from stored history.")
+    emergency_parser = subparsers.add_parser("emergency-halt", help="Create the emergency halt flag and close all broker positions.")
+    emergency_parser.add_argument("--reason", default="manual_halt", help="Short reason to record in the halt flag.")
     subparsers.add_parser("diagnose-monthly", help="Analyze the monthly P&L distribution for the current best Phase 2 run.")
     subparsers.add_parser("diagnose-assets", help="Analyze per-asset trade contribution for the latest Phase 2 run.")
     subparsers.add_parser("diagnose-fp", help="Analyze false positive regime flags for the latest Phase 3 run.")
@@ -271,6 +275,27 @@ def main() -> int:
             print(f"issue: {issue}")
         return 0 if ready else 1
 
+    if command == "verify-phase7-gate":
+        result = verify_phase7_gate(config_path)
+        print("Phase 7 gate verification completed.")
+        print(f"calendar_days_observed: {result.calendar_days_observed}")
+        print(f"expected_trading_days: {result.expected_trading_days}")
+        print(f"actual_trading_days: {result.actual_trading_days}")
+        print(f"annualized_tracking_error: {result.annualized_tracking_error}")
+        print(f"critical_day_count: {result.critical_day_count}")
+        print(f"learning_loops_on_schedule: {result.learning_loops_on_schedule}")
+        print(f"gate_passed: {result.gate_passed}")
+        print(f"Report: {result.output_path}")
+        return 0 if result.gate_passed else 1
+
+    if command == "emergency-halt":
+        result = emergency_halt(config_path, reason=args.reason)
+        print("Emergency halt executed.")
+        print(f"mode: {result['mode']}")
+        print(f"halt_flag_path: {result['halt_flag_path']}")
+        print(f"closed_positions: {len(result['closed_positions'])}")
+        return 0
+
     if command == "diagnose-monthly":
         result = diagnose_monthly_performance(config_path)
         print("Monthly diagnostics completed.")
@@ -382,6 +407,8 @@ def _resolve_config_path(config_path: str, command: str) -> str:
         "start-scheduler",
         "check-live-readiness",
         "deploy-live",
+        "verify-phase7-gate",
+        "emergency-halt",
     }
     if config_path == default_config and command in phase3_commands:
         phase3_config = Path("config/phase3.yaml")

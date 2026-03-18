@@ -43,6 +43,7 @@ class PipelineScheduler:
         self.mode = mode
         self.schedule_config_path = Path(schedule_config_path)
         self.schedule_config = load_schedule_config(self.schedule_config_path)
+        self.halt_flag_path = self.config.paths.log_dir / "emergency_halt.flag"
         self.scheduler = BlockingScheduler(timezone=_timezone(self.schedule_config.daily_pipeline.timezone))
 
     def setup_jobs(self) -> BlockingScheduler:
@@ -71,15 +72,24 @@ class PipelineScheduler:
         self.scheduler.start()
 
     def _run_daily_pipeline(self) -> None:
+        if self.halt_flag_path.exists():
+            print(f"[HALTED] Daily pipeline skipped because {self.halt_flag_path} exists.")
+            return
         run_daily_pipeline(self.config_path, mode=self.mode)
 
     def _run_weekly_mistake_analysis(self) -> None:
+        if self.halt_flag_path.exists():
+            print(f"[HALTED] Weekly mistake analysis skipped because {self.halt_flag_path} exists.")
+            return
         evaluation_date = self._scheduler_now(self.schedule_config.weekly_mistake_analysis.timezone).date()
         start_date = (pd.Timestamp(evaluation_date) - pd.Timedelta(days=6)).date().isoformat()
         end_date = evaluation_date.isoformat()
         run_mistake_analysis(self.config_path, start_date, end_date)
 
     def _run_monthly_bayesian_update(self) -> None:
+        if self.halt_flag_path.exists():
+            print(f"[HALTED] Monthly Bayesian update skipped because {self.halt_flag_path} exists.")
+            return
         evaluation_date = self._scheduler_now(self.schedule_config.monthly_bayesian_update.timezone).date().isoformat()
         run_bayesian_update(self.config_path, evaluation_date)
 

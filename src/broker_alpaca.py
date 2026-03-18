@@ -69,6 +69,19 @@ class AlpacaBrokerClient:
     def get_account(self) -> Any:
         return self.client.get_account()
 
+    def close_all_positions(self) -> list[dict[str, Any]]:
+        responses = self.client.close_all_positions(cancel_orders=True)
+        closed: list[dict[str, Any]] = []
+        for response in responses or []:
+            closed.append(
+                {
+                    "order_id": str(getattr(response, "id", "")),
+                    "status": str(getattr(response, "status", "submitted")),
+                    "symbol": str(getattr(response, "symbol", "")),
+                }
+            )
+        return closed
+
 
 def _load_credentials(credentials_path: Path) -> dict[str, Any]:
     if not credentials_path.exists():

@@ -83,3 +83,20 @@ def test_get_positions_parses_alpaca_position_payloads(mock_rest: MagicMock, tmp
             "market_value": 4320.48,
         }
     }
+
+
+@patch("src.broker_alpaca.tradeapi.REST")
+def test_close_all_positions_uses_alpaca_bulk_close(mock_rest: MagicMock, tmp_path: Path) -> None:
+    credentials_path = tmp_path / "credentials.yaml"
+    _write_credentials(credentials_path)
+    mock_client = MagicMock()
+    mock_client.close_all_positions.return_value = [
+        SimpleNamespace(id="close-1", status="accepted", symbol="SPY"),
+    ]
+    mock_rest.return_value = mock_client
+
+    client = AlpacaBrokerClient(_build_config(credentials_path))
+    closed = client.close_all_positions()
+
+    mock_client.close_all_positions.assert_called_once_with(cancel_orders=True)
+    assert closed == [{"order_id": "close-1", "status": "accepted", "symbol": "SPY"}]

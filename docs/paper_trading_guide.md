@@ -43,7 +43,23 @@ python3 -m src.main run-daily --mode paper
    - No reconciliation mismatch was reported.
    - The daily summary printed allocation weights, risk headroom, and any alerts.
 
-## 5. Set Up Automated Daily Execution
+## 5. Start The 90-Day Paper Trading Clock
+The 90-day clock starts on the first calendar day where all of the following are true:
+- `python3 -m src.main run-daily --mode paper` completes without a system error.
+- The daily summary reports no unexpected reconciliation mismatch.
+- The paper trading state is written to `data/processed/phase7_state.json`.
+- The paper account and the local system are both available for the scheduled close-of-day run.
+
+Before the first scheduled day, run these checks:
+
+```bash
+python3 -m src.main check-live-readiness
+python3 -m src.main show-schedule
+```
+
+`check-live-readiness` should still fail at this point because the Phase 7 gate is not yet cleared and `live_confirmed.txt` should not exist. That is expected.
+
+## 6. Set Up Automated Daily Execution
 Run the daily pipeline at 4:30 PM ET, after the market close and after the data inputs should be available.
 
 Example crontab:
@@ -53,12 +69,19 @@ CRON_TZ=America/New_York
 30 16 * * 1-5 cd /home/djmann/projects/Investment-alpha-engine && python3 -m src.main run-daily --mode paper >> logs/phase7_paper_trading.log 2>&1
 ```
 
+Scheduler alternative:
+
+```bash
+python3 -m src.main start-scheduler --mode paper
+```
+
 Notes:
 - `1-5` limits execution to weekdays.
 - Keep the schedule 15 minutes after the close unless you explicitly validate a different delay.
 - If you run from a different shell environment, use the full interpreter path for the environment that has both the project dependencies and `alpaca-trade-api` installed.
+- `config/schedule.yaml` is the canonical schedule definition for the built-in APScheduler path.
 
-## 6. Monitor the System
+## 7. Monitor The System
 Daily:
 - Check the console or cron log for `Aborted`, `Manual review`, `Alerts`, and `circuit_action`.
 - Check the Alpaca paper dashboard for positions, fills, and buying power.
@@ -66,7 +89,12 @@ Daily:
 
 ```bash
 python3 -m src.main run-daily-summary --mode paper
+python3 -m src.main performance-summary
 ```
+
+- Review `logs/daily_reports/report_YYYY-MM-DD.txt`.
+- Check `logs/alerts.log` and `logs/critical_alerts.log`.
+- Confirm `health_status` remains `HEALTHY` or explain any `DEGRADED` day before the next session.
 
 Weekly:
 - Confirm a new `diagnostics/mistake_analysis_*.md` report was generated near the end of the trading week.
@@ -76,7 +104,23 @@ Monthly:
 - Confirm `data/processed/bayesian_update_report.json` was refreshed after month-end.
 - Review whether the suggested parameter moves are small and directionally sensible.
 
-## 7. Failure Handling
+## 8. Missed Days And Acceptable Skips
+- Acceptable skips: weekends, exchange holidays, and days where the market is closed.
+- Missed day: a trading day where the system should have run and did not because of a system, environment, scheduling, or broker integration failure.
+- Manual recovery for a missed day:
+
+```bash
+python3 -m src.main run-daily --mode paper --date YYYY-MM-DD
+```
+
+- After a manual recovery, rerun:
+
+```bash
+python3 -m src.main run-daily-summary --mode paper
+python3 -m src.main performance-report
+```
+
+## 9. Failure Handling
 Common failure classes and the expected action:
 
 - `Pre-trade pipeline failure`
@@ -99,15 +143,38 @@ Common failure classes and the expected action:
   Meaning: the order violated a hard risk constraint.
   Action: treat this as expected protection unless it indicates a sizing bug; investigate repeated occurrences.
 
-## 8. Emergency Stop
+## 10. Emergency Stop
 If you need to stop the system immediately:
-1. Disable the cron entry.
-2. If the process is currently running, stop it.
-3. Review current Alpaca paper positions and flatten manually in the dashboard if needed.
-4. Optionally rename `config/credentials.yaml` to prevent accidental reconnects until you are ready to resume.
+1. Run:
 
-## 9. After 90 Days: Phase 7 Gate Review
-There is not yet an automated `verify-phase7` command. Use the recorded paper-trading history to evaluate the gate manually:
+```bash
+python3 -m src.main emergency-halt --reason "manual_stop"
+```
+
+2. Disable the cron entry or stop the scheduler process.
+3. Confirm `logs/emergency_halt.flag` exists.
+4. Review Alpaca paper positions and confirm the portfolio is flat or moving to flat.
+
+To resume after an emergency halt:
+1. Remove `logs/emergency_halt.flag`.
+2. Re-run `python3 -m src.main run-daily-summary --mode paper`.
+3. Restart cron or `python3 -m src.main start-scheduler --mode paper`.
+
+## 11. After 90 Days: Phase 7 Gate Review
+Run the automated verification:
+
+```bash
+python3 -m src.main verify-phase7-gate
+```
+
+This command checks:
+- Whether the trailing paper window covers 90 calendar days.
+- Whether all expected trading days in that window have a recorded execution.
+- Whether annualized tracking error remains below 5%.
+- Whether any critical system days were recorded.
+- Whether weekly mistake analysis and monthly Bayesian updates ran on schedule.
+
+Manual review steps still required:
 
 1. Confirm 90 consecutive calendar days of scheduled paper operation from the cron log and daily state history.
 2. Check that there were no missed trading days caused by system failures.
@@ -118,6 +185,7 @@ There is not yet an automated `verify-phase7` command. Use the recorded paper-tr
 Minimum records to review:
 - `logs/phase7_paper_trading.log`
 - `data/processed/phase7_state.json`
+- `data/performance.db`
 - `data/trade_journal.db`
 - Alpaca paper account history and order/fill records
 

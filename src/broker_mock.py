@@ -91,6 +91,21 @@ class MockBrokerClient:
         )
         return float(self._cash + market_value)
 
+    def close_all_positions(self) -> list[dict[str, float | str]]:
+        closed: list[dict[str, float | str]] = []
+        for asset, quantity in list(self._positions.items()):
+            if abs(quantity) <= 1e-9:
+                continue
+            side = "sell" if quantity > 0 else "buy"
+            order_id = self.submit_order(
+                asset=asset,
+                side=side,
+                qty=abs(quantity),
+                expected_price=self._market_prices.get(asset, 100.0),
+            )
+            closed.append({"order_id": order_id, "asset": asset, "quantity": abs(quantity), "side": side})
+        return closed
+
     def set_market_prices(self, price_map: dict[str, float]) -> None:
         for asset, price in price_map.items():
             self._market_prices[str(asset)] = float(price)

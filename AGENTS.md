@@ -13,9 +13,10 @@ Build the algorithmic trading system described in docs/plan.md.
 - Continually update the `Current Focus` section whenever work progresses so it always shows the active task and next step.
 
 ## Current Focus
-Phase 8: Infrastructure Build In Progress
-- Active task: Finish the Phase 7/8 operational handoff with gate-verification commands, emergency halt, and launch documentation
-- Next step: Add verify-phase7-gate and emergency-halt, then update the paper/live deployment guides and mark Phase 8 code complete
+Phase 8: Code Complete
+- Phase 7 gate: PENDING (requires 90 consecutive calendar days of paper trading)
+- Phase 8 gate: PENDING (requires the Phase 7 gate plus the first 30 live trading days)
+- Current action: START PAPER TRADING with Alpaca paper credentials, monitor the daily health output, and accumulate the 90-day record for `verify-phase7-gate`
 
 ## Tasks
 1. Set up data ingestion using yfinance
