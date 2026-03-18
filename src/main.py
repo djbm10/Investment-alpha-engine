@@ -24,6 +24,7 @@ from .phase4 import run_phase4_pipeline, train_tcn_ensemble, verify_phase4_gate
 from .phase5 import run_phase5_pipeline, verify_phase5_gate
 from .phase2_sweep import run_phase2_sweep
 from .phase3_sweep import run_phase3_sweep
+from .simulation import run_simulation
 from .trend_strategy import run_trend_strategy_pipeline
 from .scheduler import next_run_time
 
@@ -56,6 +57,8 @@ def parse_args() -> argparse.Namespace:
     run_daily_parser.add_argument("--mode", help="Override the configured broker mode for this run.")
     run_daily_summary_parser = subparsers.add_parser("run-daily-summary", help="Print the latest Phase 7 daily summary.")
     run_daily_summary_parser.add_argument("--mode", help="Override the configured broker mode for this run.")
+    simulation_parser = subparsers.add_parser("run-simulation", help="Run the Phase 7 historical daily-pipeline simulation.")
+    simulation_parser.add_argument("--days", type=int, default=30, help="Number of trading days to replay in simulation mode.")
     subparsers.add_parser("diagnose-monthly", help="Analyze the monthly P&L distribution for the current best Phase 2 run.")
     subparsers.add_parser("diagnose-assets", help="Analyze per-asset trade contribution for the latest Phase 2 run.")
     subparsers.add_parser("diagnose-fp", help="Analyze false positive regime flags for the latest Phase 3 run.")
@@ -207,6 +210,14 @@ def main() -> int:
             print(f"{key}: {value}")
         return 0
 
+    if command == "run-simulation":
+        result = run_simulation(config_path, days=args.days)
+        print("Phase 7 simulation completed.")
+        for key, value in result.summary_metrics.items():
+            print(f"{key}: {value}")
+        print(f"Report: {result.output_path}")
+        return 0
+
     if command == "diagnose-monthly":
         result = diagnose_monthly_performance(config_path)
         print("Monthly diagnostics completed.")
@@ -309,7 +320,7 @@ def _resolve_config_path(config_path: str, command: str) -> str:
     phase4_commands = {"train-tcn", "run-phase4", "verify-phase4"}
     phase5_commands = {"run-trend-strategy", "run-phase5", "verify-phase5"}
     phase6_commands = {"run-bayesian-update", "analyze-mistakes", "validate-learning"}
-    phase7_commands = {"run-daily", "run-daily-summary"}
+    phase7_commands = {"run-daily", "run-daily-summary", "run-simulation"}
     if config_path == default_config and command in phase3_commands:
         phase3_config = Path("config/phase3.yaml")
         if phase3_config.exists():

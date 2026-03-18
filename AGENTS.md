@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 7: Infrastructure Build In Progress
-- Active task: Build and verify the Phase 7 daily pipeline orchestration on top of the mock broker, order manager, and risk engine
-- Next step: Run the last-30-day historical simulation loop and validate that pipeline P&L stays aligned with the backtest
+- Active task: Add the Alpaca paper-trading client and credentials scaffolding on top of the verified simulation pipeline
+- Next step: Install the Alpaca dependency, wire the broker adapter and tests, then write the paper-trading launch guide
 
 ## Tasks
 1. Set up data ingestion using yfinance

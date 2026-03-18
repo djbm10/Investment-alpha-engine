@@ -174,8 +174,13 @@ class RiskManager:
                 consecutive_high_days=0,
             )
 
-        correlation = aligned.iloc[:, 0].corr(aligned.iloc[:, 1])
-        correlation_value = 0.0 if pd.isna(correlation) else float(correlation)
+        left_std = float(aligned.iloc[:, 0].std(ddof=0))
+        right_std = float(aligned.iloc[:, 1].std(ddof=0))
+        if left_std == 0.0 or right_std == 0.0:
+            correlation_value = 0.0
+        else:
+            correlation = aligned.iloc[:, 0].corr(aligned.iloc[:, 1])
+            correlation_value = 0.0 if pd.isna(correlation) else float(correlation)
         warning = correlation_value > self.risk_limits.max_spy_correlation_20d
         if correlation_value > self.CORRELATION_REDUCTION_THRESHOLD:
             self._high_correlation_streak += 1
