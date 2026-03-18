@@ -28,8 +28,10 @@ from .tcn_trainer import SequenceDatasetBundle, TCNTrainer
 class Phase4TrainingResult:
     model_path: Path
     summary_path: Path
+    manifest_path: Path
     latest_window: dict[str, str]
     validation_losses: list[float]
+    window_count: int
 
 
 @dataclass(frozen=True)
@@ -53,44 +55,76 @@ def train_tcn_ensemble(config_path: str | Path) -> Phase4TrainingResult:
     if not windows:
         raise ValueError("No valid walk-forward windows were available for Phase 4 training.")
 
-    latest_window = windows[-1]
-    trainer = phase4_context.trainer
-    ensemble = trainer.train_ensemble(
-        phase4_context.features_by_date,
-        phase4_context.residuals_by_date,
-        train_end_date=latest_window["validation_end"],
-        validation_start_date=latest_window["validation_start"],
-    )
-
     processed_dir = config.paths.processed_dir
     processed_dir.mkdir(parents=True, exist_ok=True)
+
+    trainer = phase4_context.trainer
+    manifest_entries: list[dict[str, object]] = []
+    latest_window = windows[-1]
+    latest_validation_losses: list[float] = []
+    latest_state_dicts: list[dict[str, torch.Tensor]] = []
+    for window_index, window in enumerate(windows):
+        ensemble = trainer.train_ensemble(
+            phase4_context.features_by_date,
+            phase4_context.residuals_by_date,
+            train_end_date=window["validation_end"],
+            validation_start_date=window["validation_start"],
+        )
+        model_path = processed_dir / f"phase4_ensemble_window_{window_index}.pt"
+        state_dicts = [model.state_dict() for model in ensemble.models]
+        torch.save(
+            {
+                "state_dicts": state_dicts,
+                "config": config_to_dict(config),
+                "window": {key: value.isoformat() for key, value in window.items()},
+                "validation_losses": ensemble.validation_losses,
+            },
+            model_path,
+        )
+        manifest_entries.append(
+            {
+                "window_index": window_index,
+                "model_path": str(model_path),
+                "window": {key: value.isoformat() for key, value in window.items()},
+                "validation_losses": ensemble.validation_losses,
+            }
+        )
+        if window_index == len(windows) - 1:
+            latest_validation_losses = list(ensemble.validation_losses)
+            latest_state_dicts = state_dicts
+
     model_path = processed_dir / "phase4_latest_ensemble.pt"
     summary_path = processed_dir / "phase4_latest_training_summary.json"
+    manifest_path = processed_dir / "phase4_ensemble_manifest.json"
     torch.save(
         {
-            "state_dicts": [model.state_dict() for model in ensemble.models],
+            "state_dicts": latest_state_dicts,
             "config": config_to_dict(config),
             "window": {key: value.isoformat() for key, value in latest_window.items()},
-            "validation_losses": ensemble.validation_losses,
+            "validation_losses": latest_validation_losses,
         },
         model_path,
     )
     summary_path.write_text(
         json.dumps(
             {
+                "window_count": len(windows),
                 "window": {key: value.isoformat() for key, value in latest_window.items()},
-                "validation_losses": ensemble.validation_losses,
-                "n_models": len(ensemble.models),
+                "validation_losses": latest_validation_losses,
+                "n_models": len(latest_state_dicts),
             },
             indent=2,
         ),
         encoding="utf-8",
     )
+    manifest_path.write_text(json.dumps({"windows": manifest_entries}, indent=2), encoding="utf-8")
     return Phase4TrainingResult(
         model_path=model_path,
         summary_path=summary_path,
+        manifest_path=manifest_path,
         latest_window={key: value.isoformat() for key, value in latest_window.items()},
-        validation_losses=ensemble.validation_losses,
+        validation_losses=latest_validation_losses,
+        window_count=len(windows),
     )
 
 
@@ -104,22 +138,30 @@ def run_phase4_pipeline(config_path: str | Path) -> Phase4Result:
     walk_forward_start = time.time()
     prediction_rows: list[dict[str, object]] = []
     window_profiles: list[dict[str, object]] = []
+    ensemble_manifest = _load_phase4_ensemble_manifest(config.paths.processed_dir)
+    if len(ensemble_manifest) != len(windows):
+        raise ValueError(
+            "Saved Phase 4 ensemble manifest does not match the current walk-forward windows. "
+            "Run `python3 -m src.main train-tcn` first."
+        )
     for window in windows:
         window_profile: dict[str, object] = {
             "label": f"{window['test_start'].date()}:{window['test_end'].date()}",
         }
         _print_profile(f"Window {window_profile['label']} started")
-        train_start = time.time()
-        ensemble = trainer.train_ensemble(
-            phase4_context.features_by_date,
-            phase4_context.residuals_by_date,
-            train_end_date=window["validation_end"],
-            validation_start_date=window["validation_start"],
+        manifest_entry = ensemble_manifest[len(window_profiles)]
+        _validate_manifest_window(manifest_entry, window)
+        load_start = time.time()
+        ensemble_models = _load_phase4_ensemble_models(
+            trainer=trainer,
+            model_path=Path(str(manifest_entry["model_path"])),
+            n_features=phase4_context.dataset.inputs.shape[-1],
+            n_assets=phase4_context.dataset.inputs.shape[-2],
         )
-        train_end = time.time()
-        window_profile["train_seconds"] = train_end - train_start
+        load_end = time.time()
+        window_profile["load_seconds"] = load_end - load_start
         _print_profile(
-            f"Window {window_profile['label']} training: {window_profile['train_seconds']:.1f}s"
+            f"Window {window_profile['label']} ensemble load: {window_profile['load_seconds']:.1f}s"
         )
 
         inference_start = time.time()
@@ -131,7 +173,7 @@ def run_phase4_pipeline(config_path: str | Path) -> Phase4Result:
         window_profile["test_samples"] = len(test_indices)
         for index in test_indices:
             feature_sequence = phase4_context.dataset.inputs[index]
-            predicted_mean, predicted_std = trainer.predict(ensemble.models, feature_sequence)
+            predicted_mean, predicted_std = trainer.predict(ensemble_models, feature_sequence)
             signal_date = pd.Timestamp(phase4_context.dataset.signal_dates[index])
             target_date = pd.Timestamp(phase4_context.dataset.target_dates[index])
             actual_next_residual = phase4_context.dataset.targets[index]
@@ -162,7 +204,7 @@ def run_phase4_pipeline(config_path: str | Path) -> Phase4Result:
         _print_profile(
             "  "
             f"{window_profile['label']} "
-            f"train={window_profile['train_seconds']:.1f}s "
+            f"load={window_profile['load_seconds']:.1f}s "
             f"inference={window_profile['inference_seconds']:.1f}s "
             f"test_samples={window_profile['test_samples']}"
         )
@@ -392,6 +434,56 @@ def _predicted_actual_correlation(predictions: pd.DataFrame) -> float:
     if pd.isna(correlation):
         return 0.0
     return float(correlation)
+
+
+def _load_phase4_ensemble_manifest(processed_dir: Path) -> list[dict[str, object]]:
+    manifest_path = processed_dir / "phase4_ensemble_manifest.json"
+    if not manifest_path.exists():
+        raise ValueError(
+            "Phase 4 ensemble manifest was not found. Run `python3 -m src.main train-tcn` first."
+        )
+    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    windows = manifest_payload.get("windows", [])
+    if not windows:
+        raise ValueError("Phase 4 ensemble manifest did not contain any saved windows.")
+    return [dict(window) for window in windows]
+
+
+def _load_phase4_ensemble_models(
+    trainer: TCNTrainer,
+    model_path: Path,
+    n_features: int,
+    n_assets: int,
+) -> list[torch.nn.Module]:
+    if not model_path.exists():
+        raise ValueError(f"Saved Phase 4 ensemble checkpoint was not found at '{model_path}'.")
+    payload = torch.load(model_path, map_location="cpu")
+    state_dicts = payload.get("state_dicts", [])
+    if not state_dicts:
+        raise ValueError(f"Saved Phase 4 ensemble checkpoint at '{model_path}' contained no models.")
+    models = []
+    for state_dict in state_dicts:
+        model = trainer._instantiate_model(n_features=n_features, n_assets=n_assets)
+        model.load_state_dict(state_dict)
+        model = model.to(trainer.device)
+        model.eval()
+        models.append(model)
+    return models
+
+
+def _validate_manifest_window(
+    manifest_entry: dict[str, object],
+    expected_window: dict[str, pd.Timestamp],
+) -> None:
+    stored_window = manifest_entry.get("window")
+    if not isinstance(stored_window, dict):
+        raise ValueError("Phase 4 ensemble manifest entry is missing its window metadata.")
+    for key, expected_value in expected_window.items():
+        if str(stored_window.get(key)) != expected_value.isoformat():
+            raise ValueError(
+                "Phase 4 ensemble manifest does not match the current walk-forward windows. "
+                "Run `python3 -m src.main train-tcn` again."
+            )
 
 
 def _print_profile(message: str) -> None:
