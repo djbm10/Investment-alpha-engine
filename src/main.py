@@ -12,6 +12,7 @@ from .deployment import check_live_readiness, deploy_live_mode
 from .learning.bayesian_optimizer import run_bayesian_update
 from .learning.learning_validation import validate_learning_loops
 from .learning.mistake_analyzer import run_mistake_analysis
+from .performance_tracker import build_performance_summary, generate_performance_report
 from .pipeline import (
     initialize_database,
     run_daily_pipeline,
@@ -60,6 +61,10 @@ def parse_args() -> argparse.Namespace:
     run_daily_summary_parser.add_argument("--mode", help="Override the configured broker mode for this run.")
     simulation_parser = subparsers.add_parser("run-simulation", help="Run the Phase 7 historical daily-pipeline simulation.")
     simulation_parser.add_argument("--days", type=int, default=30, help="Number of trading days to replay in simulation mode.")
+    performance_report_parser = subparsers.add_parser("performance-report", help="Generate the Phase 8 performance report.")
+    performance_report_parser.add_argument("--start", help="Optional start date in YYYY-MM-DD format.")
+    performance_report_parser.add_argument("--end", help="Optional end date in YYYY-MM-DD format.")
+    subparsers.add_parser("performance-summary", help="Print a one-line Phase 8 performance summary.")
     subparsers.add_parser("check-live-readiness", help="Validate whether the system is ready to switch from paper to live.")
     subparsers.add_parser("deploy-live", help="Run the readiness checks and switch deployment mode to live if all checks pass.")
     subparsers.add_parser("diagnose-monthly", help="Analyze the monthly P&L distribution for the current best Phase 2 run.")
@@ -221,6 +226,26 @@ def main() -> int:
         print(f"Report: {result.output_path}")
         return 0
 
+    if command == "performance-report":
+        stats, output_path = generate_performance_report(config_path, start_date=args.start, end_date=args.end)
+        print("Phase 8 performance report generated.")
+        print(f"sharpe_ratio: {stats['sharpe_ratio']}")
+        print(f"max_drawdown: {stats['max_drawdown']}")
+        print(f"cumulative_return: {stats['cumulative_return']}")
+        print(f"Report: {output_path}")
+        return 0
+
+    if command == "performance-summary":
+        stats = build_performance_summary(config_path)
+        print(
+            "performance_summary:"
+            f" sharpe={stats['sharpe_ratio']:.4f}"
+            f" max_dd={stats['max_drawdown']:.2%}"
+            f" cumulative_return={stats['cumulative_return']:.2%}"
+            f" rows={stats['row_count']}"
+        )
+        return 0
+
     if command == "check-live-readiness":
         ready, issues = check_live_readiness(config_path)
         print(f"ready: {ready}")
@@ -337,7 +362,15 @@ def _resolve_config_path(config_path: str, command: str) -> str:
     phase4_commands = {"train-tcn", "run-phase4", "verify-phase4"}
     phase5_commands = {"run-trend-strategy", "run-phase5", "verify-phase5"}
     phase6_commands = {"run-bayesian-update", "analyze-mistakes", "validate-learning"}
-    phase7_commands = {"run-daily", "run-daily-summary", "run-simulation", "check-live-readiness", "deploy-live"}
+    phase8_commands = {
+        "run-daily",
+        "run-daily-summary",
+        "run-simulation",
+        "performance-report",
+        "performance-summary",
+        "check-live-readiness",
+        "deploy-live",
+    }
     if config_path == default_config and command in phase3_commands:
         phase3_config = Path("config/phase3.yaml")
         if phase3_config.exists():
@@ -354,7 +387,7 @@ def _resolve_config_path(config_path: str, command: str) -> str:
         phase6_config = Path("config/phase6.yaml")
         if phase6_config.exists():
             return str(phase6_config)
-    if config_path == default_config and command in phase7_commands:
+    if config_path == default_config and command in phase8_commands:
         phase8_config = Path("config/phase8.yaml")
         if phase8_config.exists():
             return str(phase8_config)

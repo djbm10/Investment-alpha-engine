@@ -23,6 +23,7 @@ from .learning.mistake_analyzer import MistakeAnalyzer
 from .logging_utils import setup_logger
 from .monitoring import Monitor
 from .order_manager import OrderManager
+from .performance_tracker import PerformanceTracker
 from .phase5 import _run_combined_backtest
 from .portfolio_allocator import DynamicAllocator
 from .risk_manager import RiskManager
@@ -231,12 +232,14 @@ class DailyPipeline:
         self.mistake_analyzer = MistakeAnalyzer(self.config)
         self.bayesian_optimizer = BayesianParameterOptimizer(self.config)
         self.monitor = Monitor(self.config)
+        self.performance_tracker = PerformanceTracker(self.config.paths.project_root / "data" / "performance.db", config=self.config)
         self.broker_client = broker_client or self._build_default_broker_client()
         self.order_manager = OrderManager(self.config, self.broker_client)
         self.state = self._load_state()
         self._load_strategy_context()
 
     def close(self) -> None:
+        self.performance_tracker.close()
         self.trade_journal.close()
 
     def _build_default_broker_client(self) -> Any:
@@ -1032,6 +1035,20 @@ class DailyPipeline:
             },
         )
         updated = replace(updated, report_path=str(report_path))
+        summary = updated.daily_summary
+        self.performance_tracker.record_daily(
+            date=str(summary["date"]),
+            portfolio_value=float(summary["portfolio_value"]),
+            daily_pnl=float(summary["day_pnl"]),
+            positions=dict(summary.get("positions", {})),
+            allocation_weights=dict(summary.get("allocation_weights", {})),
+            regime_state=str(summary.get("regime_state", "UNKNOWN")),
+            risk_headroom=dict(summary.get("risk_limit_headroom", {})),
+            capital_scale_factor=float(summary.get("capital_scale_factor", 1.0)),
+            health_status=health.status,
+            tracking_error_pct=health.tracking_error_pct,
+            spy_return=float(self.spy_returns.get(result.date, 0.0)),
+        )
         if self.state["daily_records"] and self.state["daily_records"][-1]["date"] == result.date.date().isoformat():
             self.state["daily_records"][-1]["health_status"] = health.status
             self.state["daily_records"][-1]["tracking_error_pct"] = health.tracking_error_pct

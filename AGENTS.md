@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 8: Infrastructure Build In Progress
-- Active task: Add performance tracking and reporting so paper/live operation accumulates daily snapshots, statistics, and dashboard-ready summaries
-- Next step: Wire performance recording into the daily pipeline, then add scheduling and the Phase 7/8 handoff commands/docs
+- Active task: Add scheduler and operational handoff commands/docs so paper trading can start on a fixed schedule with clear launch and gate-verification steps
+- Next step: Build the schedule config and runtime commands, then finish the paper/live deployment guides and Phase 8 status update
 
 ## Tasks
 1. Set up data ingestion using yfinance
