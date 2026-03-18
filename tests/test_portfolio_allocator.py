@@ -38,3 +38,15 @@ def test_should_rebalance_uses_business_day_frequency() -> None:
     allocator = DynamicAllocator(_phase5_config())
     assert allocator.should_rebalance(pd.Timestamp("2024-01-08"), pd.Timestamp("2024-01-01")) is True
     assert allocator.should_rebalance(pd.Timestamp("2024-01-03"), pd.Timestamp("2024-01-01")) is False
+
+
+def test_compute_allocations_applies_kill_switch_overrides() -> None:
+    allocator = DynamicAllocator(_phase5_config())
+    weights = allocator.compute_allocations(
+        pd.Timestamp("2024-01-31"),
+        {"strategy_a": 0.20, "strategy_b": -0.10},
+        strategy_statuses={"strategy_a": "QUARANTINED", "strategy_b": "ACTIVE"},
+    )
+
+    assert weights["strategy_a"] == 0.0
+    assert weights["strategy_b"] == 1.0

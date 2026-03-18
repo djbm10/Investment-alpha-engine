@@ -67,3 +67,15 @@ def test_load_phase5_config_reads_phase5_section() -> None:
     assert config.phase5.trend_long_ma == 200
     assert config.phase5.min_allocation == 0.15
     assert config.phase5.max_allocation == 0.85
+    assert config.learning.trade_journal_path == "data/trade_journal.db"
+
+
+def test_load_phase6_config_reads_learning_section() -> None:
+    config = load_config(Path("config/phase6.yaml"))
+
+    assert config.learning.trade_journal_path == "data/trade_journal.db"
+    assert config.learning.bayesian.evaluation_window == 60
+    assert config.learning.bayesian.update_smoothing == 0.7
+    assert config.learning.bayesian.grid_resolution == 5
+    assert config.learning.kill_switch.reduction_threshold == -0.5
+    assert config.learning.kill_switch.quarantine_lookback_days == 120

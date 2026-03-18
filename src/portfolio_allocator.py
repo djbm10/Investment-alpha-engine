@@ -45,6 +45,7 @@ class DynamicAllocator:
         self,
         date: pd.Timestamp | str,
         strategy_utilities: dict[str, float],
+        strategy_statuses: dict[str, str] | None = None,
     ) -> dict[str, float]:
         if not strategy_utilities:
             raise ValueError("At least one strategy utility is required.")
@@ -56,7 +57,8 @@ class DynamicAllocator:
         weights = exp_values / exp_values.sum()
         clipped = np.clip(weights, self.config.min_allocation, self.config.max_allocation)
         normalized = clipped / clipped.sum()
-        return {strategy_id: float(normalized[idx]) for idx, strategy_id in enumerate(strategy_ids)}
+        allocations = {strategy_id: float(normalized[idx]) for idx, strategy_id in enumerate(strategy_ids)}
+        return self._apply_status_overrides(allocations, strategy_statuses or {})
 
     def should_rebalance(
         self,
@@ -68,3 +70,30 @@ class DynamicAllocator:
         current = pd.Timestamp(date)
         elapsed_days = len(pd.bdate_range(last_rebalance_date, current)) - 1
         return elapsed_days >= self.config.rebalance_frequency_days
+
+    def _apply_status_overrides(
+        self,
+        allocations: dict[str, float],
+        strategy_statuses: dict[str, str],
+    ) -> dict[str, float]:
+        if not strategy_statuses:
+            return allocations
+
+        adjusted = allocations.copy()
+        for strategy_id, status in strategy_statuses.items():
+            if strategy_id not in adjusted:
+                continue
+            if status == "QUARANTINED":
+                adjusted[strategy_id] = 0.0
+            elif status == "REDUCED":
+                adjusted[strategy_id] = min(adjusted[strategy_id], self.config.min_allocation)
+
+        total_weight = sum(adjusted.values())
+        if total_weight <= 0:
+            active_ids = [key for key, status in strategy_statuses.items() if status != "QUARANTINED"]
+            if not active_ids:
+                return {key: 0.0 for key in adjusted}
+            equal_weight = 1.0 / len(active_ids)
+            return {key: equal_weight if key in active_ids else 0.0 for key in adjusted}
+
+        return {strategy_id: float(weight / total_weight) for strategy_id, weight in adjusted.items()}

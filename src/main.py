@@ -8,6 +8,9 @@ from .diagnostics.asset_contribution import diagnose_asset_contribution
 from .diagnostics.monthly_analysis import diagnose_monthly_performance
 from .diagnostics.regime_false_positives import diagnose_regime_false_positives
 from .diagnostics.regime_validation import validate_regime_detector
+from .learning.bayesian_optimizer import run_bayesian_update
+from .learning.learning_validation import validate_learning_loops
+from .learning.mistake_analyzer import run_mistake_analysis
 from .pipeline import initialize_database, run_phase1_pipeline, verify_phase1_gate
 from .phase2 import run_phase2_pipeline, verify_phase2_gate
 from .phase3 import run_phase3_pipeline, verify_phase3_gate
@@ -36,6 +39,12 @@ def parse_args() -> argparse.Namespace:
     subparsers.add_parser("run-phase4", help="Run the Phase 4 walk-forward backtest with the TCN veto overlay.")
     subparsers.add_parser("run-trend-strategy", help="Run the standalone Phase 5 cross-asset trend-following strategy.")
     subparsers.add_parser("run-phase5", help="Run the combined Phase 5 dynamic allocation backtest.")
+    bayesian_parser = subparsers.add_parser("run-bayesian-update", help="Run the Phase 6 Bayesian parameter update on Strategy A.")
+    bayesian_parser.add_argument("--eval-date", required=True, help="Evaluation end date in YYYY-MM-DD format.")
+    mistakes_parser = subparsers.add_parser("analyze-mistakes", help="Run the Phase 6 mistake pattern analyzer over a date range.")
+    mistakes_parser.add_argument("--start", required=True, help="Start date in YYYY-MM-DD format.")
+    mistakes_parser.add_argument("--end", required=True, help="End date in YYYY-MM-DD format.")
+    subparsers.add_parser("validate-learning", help="Run the Phase 6 historical learning-loop validation.")
     subparsers.add_parser("diagnose-monthly", help="Analyze the monthly P&L distribution for the current best Phase 2 run.")
     subparsers.add_parser("diagnose-assets", help="Analyze per-asset trade contribution for the latest Phase 2 run.")
     subparsers.add_parser("diagnose-fp", help="Analyze false positive regime flags for the latest Phase 3 run.")
@@ -143,6 +152,28 @@ def main() -> int:
             print(f"{name}: {path}")
         return 0
 
+    if command == "run-bayesian-update":
+        result = run_bayesian_update(config_path, args.eval_date)
+        print("Bayesian parameter update completed.")
+        print(f"Updated params: {result.updated_params}")
+        print(f"Report: {result.output_path}")
+        return 0
+
+    if command == "analyze-mistakes":
+        result = run_mistake_analysis(config_path, args.start, args.end)
+        print("Mistake analysis completed.")
+        print(f"Categorized rate: {result.categorized_rate:.2%}")
+        print(f"Report: {result.output_path}")
+        return 0
+
+    if command == "validate-learning":
+        result = validate_learning_loops(config_path)
+        print("Learning validation completed.")
+        for key, value in result.summary_metrics.items():
+            print(f"{key}: {value}")
+        print(f"Report: {result.output_path}")
+        return 0
+
     if command == "diagnose-monthly":
         result = diagnose_monthly_performance(config_path)
         print("Monthly diagnostics completed.")
@@ -244,6 +275,7 @@ def _resolve_config_path(config_path: str, command: str) -> str:
     phase3_commands = {"run-phase3", "run-phase3-sweep", "verify-phase3", "validate-regime-detector", "diagnose-fp"}
     phase4_commands = {"train-tcn", "run-phase4", "verify-phase4"}
     phase5_commands = {"run-trend-strategy", "run-phase5", "verify-phase5"}
+    phase6_commands = {"run-bayesian-update", "analyze-mistakes", "validate-learning"}
     if config_path == default_config and command in phase3_commands:
         phase3_config = Path("config/phase3.yaml")
         if phase3_config.exists():
@@ -256,6 +288,10 @@ def _resolve_config_path(config_path: str, command: str) -> str:
         phase5_config = Path("config/phase5.yaml")
         if phase5_config.exists():
             return str(phase5_config)
+    if config_path == default_config and command in phase6_commands:
+        phase6_config = Path("config/phase6.yaml")
+        if phase6_config.exists():
+            return str(phase6_config)
     return config_path
 
 

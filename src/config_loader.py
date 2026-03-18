@@ -134,6 +134,32 @@ class Phase5Config:
 
 
 @dataclass(frozen=True)
+class BayesianLearningConfig:
+    evaluation_window: int
+    update_smoothing: float
+    grid_resolution: int
+    sharpe_scaling: float
+
+
+@dataclass(frozen=True)
+class KillSwitchConfig:
+    reduction_threshold: float
+    quarantine_threshold: float
+    reactivation_threshold: float
+    reactivation_days: int
+    reduction_lookback_days: int
+    quarantine_lookback_days: int
+    reactivation_lookback_days: int
+
+
+@dataclass(frozen=True)
+class LearningConfig:
+    trade_journal_path: str
+    bayesian: BayesianLearningConfig
+    kill_switch: KillSwitchConfig
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     price_source: str
     tickers: list[str]
@@ -148,6 +174,7 @@ class PipelineConfig:
     phase3: Phase3Config
     phase4: Phase4Config
     phase5: Phase5Config
+    learning: LearningConfig
 
 
 def load_config(config_path: str | Path) -> PipelineConfig:
@@ -215,6 +242,7 @@ def load_config(config_path: str | Path) -> PipelineConfig:
     phase3 = _load_phase3_config(data.get("phase3", {}), phase2)
     phase4 = _load_phase4_config(data.get("phase4", {}))
     phase5 = _load_phase5_config(data.get("phase5", {}))
+    learning = _load_learning_config(data.get("learning", {}))
 
     return PipelineConfig(
         price_source=str(data["price_source"]),
@@ -230,6 +258,7 @@ def load_config(config_path: str | Path) -> PipelineConfig:
         phase3=phase3,
         phase4=phase4,
         phase5=phase5,
+        learning=learning,
     )
 
 
@@ -327,4 +356,27 @@ def _load_phase5_config(data: dict[str, object]) -> Phase5Config:
         rebalance_frequency_days=int(data.get("rebalance_frequency_days", 5)),
         performance_lookback=int(data.get("performance_lookback", 20)),
         daily_loss_limit=float(data.get("daily_loss_limit", 0.02)),
+    )
+
+
+def _load_learning_config(data: dict[str, object]) -> LearningConfig:
+    bayesian_data = data.get("bayesian", {})
+    kill_switch_data = data.get("kill_switch", {})
+    return LearningConfig(
+        trade_journal_path=str(data.get("trade_journal_path", "data/trade_journal.db")),
+        bayesian=BayesianLearningConfig(
+            evaluation_window=int(bayesian_data.get("evaluation_window", 60)),
+            update_smoothing=float(bayesian_data.get("update_smoothing", 0.7)),
+            grid_resolution=int(bayesian_data.get("grid_resolution", 5)),
+            sharpe_scaling=float(bayesian_data.get("sharpe_scaling", 2.0)),
+        ),
+        kill_switch=KillSwitchConfig(
+            reduction_threshold=float(kill_switch_data.get("reduction_threshold", -0.5)),
+            quarantine_threshold=float(kill_switch_data.get("quarantine_threshold", -0.5)),
+            reactivation_threshold=float(kill_switch_data.get("reactivation_threshold", 0.0)),
+            reactivation_days=int(kill_switch_data.get("reactivation_days", 40)),
+            reduction_lookback_days=int(kill_switch_data.get("reduction_lookback_days", 60)),
+            quarantine_lookback_days=int(kill_switch_data.get("quarantine_lookback_days", 120)),
+            reactivation_lookback_days=int(kill_switch_data.get("reactivation_lookback_days", 40)),
+        ),
     )
