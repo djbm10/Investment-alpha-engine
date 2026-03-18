@@ -28,7 +28,7 @@ from .phase2_sweep import run_phase2_sweep
 from .phase3_sweep import run_phase3_sweep
 from .simulation import run_simulation
 from .trend_strategy import run_trend_strategy_pipeline
-from .scheduler import next_run_time
+from .scheduler import PipelineScheduler, next_run_time
 
 
 def parse_args() -> argparse.Namespace:
@@ -65,6 +65,8 @@ def parse_args() -> argparse.Namespace:
     performance_report_parser.add_argument("--start", help="Optional start date in YYYY-MM-DD format.")
     performance_report_parser.add_argument("--end", help="Optional end date in YYYY-MM-DD format.")
     subparsers.add_parser("performance-summary", help="Print a one-line Phase 8 performance summary.")
+    start_scheduler_parser = subparsers.add_parser("start-scheduler", help="Start the Phase 8 daily/weekly/monthly scheduler.")
+    start_scheduler_parser.add_argument("--mode", help="Override the configured deployment mode for scheduled daily runs.")
     subparsers.add_parser("check-live-readiness", help="Validate whether the system is ready to switch from paper to live.")
     subparsers.add_parser("deploy-live", help="Run the readiness checks and switch deployment mode to live if all checks pass.")
     subparsers.add_parser("diagnose-monthly", help="Analyze the monthly P&L distribution for the current best Phase 2 run.")
@@ -246,6 +248,15 @@ def main() -> int:
         )
         return 0
 
+    if command == "start-scheduler":
+        scheduler = PipelineScheduler(config_path, mode=args.mode)
+        scheduler.setup_jobs()
+        print("Phase 8 scheduler configured.")
+        for job in scheduler.scheduler.get_jobs():
+            print(f"job: {job.id} next_run={job.next_run_time.isoformat() if job.next_run_time else 'pending'}")
+        scheduler.run()
+        return 0
+
     if command == "check-live-readiness":
         ready, issues = check_live_readiness(config_path)
         print(f"ready: {ready}")
@@ -368,6 +379,7 @@ def _resolve_config_path(config_path: str, command: str) -> str:
         "run-simulation",
         "performance-report",
         "performance-summary",
+        "start-scheduler",
         "check-live-readiness",
         "deploy-live",
     }

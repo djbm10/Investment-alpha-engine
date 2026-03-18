@@ -1,0 +1,12 @@
+schedule:
+  daily_pipeline:
+    time: "16:30"
+    timezone: "US/Eastern"
+  weekly_mistake_analysis:
+    day: "friday"
+    time: "17:00"
+    timezone: "US/Eastern"
+  monthly_bayesian_update:
+    day: 1
+    time: "17:00"
+    timezone: "US/Eastern"
