@@ -9,3 +9,4 @@ outputs/
 
 .env
 .DS_Store
+config/credentials.yaml

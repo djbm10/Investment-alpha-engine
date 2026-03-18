@@ -11,6 +11,7 @@ from uuid import uuid4
 import pandas as pd
 
 from .backtest import scale_signals_to_risk_budget
+from .broker_alpaca import AlpacaBrokerClient
 from .broker_mock import MockBrokerClient
 from .config_loader import config_to_dict, load_config
 from .database import DatabaseInitResult, DatabaseVerificationResult, PostgresStore
@@ -226,17 +227,22 @@ class DailyPipeline:
         self.kill_switch = StrategyKillSwitch(self.config)
         self.mistake_analyzer = MistakeAnalyzer(self.config)
         self.bayesian_optimizer = BayesianParameterOptimizer(self.config)
-        self.broker_client = broker_client or MockBrokerClient(
-            starting_equity=100_000.0,
-            min_slippage_bps=self.config.phase7.mock_slippage_bps_min,
-            max_slippage_bps=self.config.phase7.mock_slippage_bps_max,
-        )
+        self.broker_client = broker_client or self._build_default_broker_client()
         self.order_manager = OrderManager(self.config, self.broker_client)
         self.state = self._load_state()
         self._load_strategy_context()
 
     def close(self) -> None:
         self.trade_journal.close()
+
+    def _build_default_broker_client(self) -> Any:
+        if self.mode in {"paper", "live"}:
+            return AlpacaBrokerClient(self.config)
+        return MockBrokerClient(
+            starting_equity=100_000.0,
+            min_slippage_bps=self.config.phase7.mock_slippage_bps_min,
+            max_slippage_bps=self.config.phase7.mock_slippage_bps_max,
+        )
 
     def run_daily(self, date: str | pd.Timestamp | None = None) -> DailyPipelineResult:
         alerts: list[str] = []
