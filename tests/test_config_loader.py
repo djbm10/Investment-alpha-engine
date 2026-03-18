@@ -52,8 +52,18 @@ def test_load_phase4_config_reads_phase4_section() -> None:
     config = load_config(Path("config/phase4.yaml"))
 
     assert config.phase2.max_holding_days == 9
-    assert config.phase4.tcn_enabled is True
+    assert config.phase4.tcn_enabled is False
     assert config.phase4.hidden_channels == 32
     assert config.phase4.n_blocks == 3
     assert config.phase4.sequence_length == 20
     assert config.phase4.validation_fraction == 0.15
+
+
+def test_load_phase5_config_reads_phase5_section() -> None:
+    config = load_config(Path("config/phase5.yaml"))
+
+    assert config.phase5.trend_tickers == ["SPY", "TLT", "GLD", "UUP"]
+    assert config.phase5.trend_short_ma == 50
+    assert config.phase5.trend_long_ma == 200
+    assert config.phase5.min_allocation == 0.15
+    assert config.phase5.max_allocation == 0.85

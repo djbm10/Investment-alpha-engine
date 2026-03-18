@@ -116,6 +116,24 @@ class Phase4Config:
 
 
 @dataclass(frozen=True)
+class Phase5Config:
+    trend_tickers: list[str]
+    trend_short_ma: int
+    trend_long_ma: int
+    trend_vol_lookback: int
+    trend_cost_bps: float
+    cash_return_annual: float
+    utility_lambda_uncertainty: float
+    utility_lambda_cost: float
+    softmax_temperature: float
+    min_allocation: float
+    max_allocation: float
+    rebalance_frequency_days: int
+    performance_lookback: int
+    daily_loss_limit: float
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     price_source: str
     tickers: list[str]
@@ -129,6 +147,7 @@ class PipelineConfig:
     phase2_sweep: Phase2SweepConfig
     phase3: Phase3Config
     phase4: Phase4Config
+    phase5: Phase5Config
 
 
 def load_config(config_path: str | Path) -> PipelineConfig:
@@ -195,6 +214,7 @@ def load_config(config_path: str | Path) -> PipelineConfig:
     phase2_sweep = _load_phase2_sweep_config(data.get("phase2_sweep", {}), phase2)
     phase3 = _load_phase3_config(data.get("phase3", {}), phase2)
     phase4 = _load_phase4_config(data.get("phase4", {}))
+    phase5 = _load_phase5_config(data.get("phase5", {}))
 
     return PipelineConfig(
         price_source=str(data["price_source"]),
@@ -209,6 +229,7 @@ def load_config(config_path: str | Path) -> PipelineConfig:
         phase2_sweep=phase2_sweep,
         phase3=phase3,
         phase4=phase4,
+        phase5=phase5,
     )
 
 
@@ -286,4 +307,24 @@ def _load_phase4_config(data: dict[str, object]) -> Phase4Config:
         sequence_length=int(data.get("sequence_length", 20)),
         validation_fraction=float(data.get("validation_fraction", 0.15)),
         reversion_confirm_threshold=float(data.get("reversion_confirm_threshold", 0.5)),
+    )
+
+
+def _load_phase5_config(data: dict[str, object]) -> Phase5Config:
+    default_trend_tickers = ["SPY", "TLT", "GLD", "UUP"]
+    return Phase5Config(
+        trend_tickers=[str(value) for value in data.get("trend_tickers", default_trend_tickers)],
+        trend_short_ma=int(data.get("trend_short_ma", 50)),
+        trend_long_ma=int(data.get("trend_long_ma", 200)),
+        trend_vol_lookback=int(data.get("trend_vol_lookback", 20)),
+        trend_cost_bps=float(data.get("trend_cost_bps", 2.0)),
+        cash_return_annual=float(data.get("cash_return_annual", 0.0)),
+        utility_lambda_uncertainty=float(data.get("utility_lambda_uncertainty", 1.0)),
+        utility_lambda_cost=float(data.get("utility_lambda_cost", 2.0)),
+        softmax_temperature=float(data.get("softmax_temperature", 1.0)),
+        min_allocation=float(data.get("min_allocation", 0.15)),
+        max_allocation=float(data.get("max_allocation", 0.85)),
+        rebalance_frequency_days=int(data.get("rebalance_frequency_days", 5)),
+        performance_lookback=int(data.get("performance_lookback", 20)),
+        daily_loss_limit=float(data.get("daily_loss_limit", 0.02)),
     )
