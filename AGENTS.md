@@ -13,9 +13,9 @@ Build the algorithmic trading system described in docs/plan.md.
 - Continually update the `Current Focus` section whenever work progresses so it always shows the active task and next step.
 
 ## Current Focus
-Phase 7: Infrastructure Build In Progress
-- Active task: Add the Alpaca paper-trading client and credentials scaffolding on top of the verified simulation pipeline
-- Next step: Install the Alpaca dependency, wire the broker adapter and tests, then write the paper-trading launch guide
+Phase 7: Code Complete, Gate Pending
+- Active task: Phase 7 implementation is complete; the remaining work is the 90-day Alpaca paper-trading gate evaluation
+- Next step: Create `config/credentials.yaml` from the template, add Alpaca paper keys, schedule the daily run, and begin paper trading
 
 ## Tasks
 1. Set up data ingestion using yfinance
