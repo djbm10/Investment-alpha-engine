@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 import torch
+from torch.utils.data import DataLoader, Dataset
 
 from .config_loader import Phase4Config, PipelineConfig
 from .tcn_model import TCNPredictor
@@ -27,18 +28,23 @@ class TrainedModelResult:
 
 
 @dataclass(frozen=True)
-class ModelTrainingArtifact:
-    state_dict: dict[str, torch.Tensor]
-    best_validation_loss: float
-    epochs_trained: int
-
-
-@dataclass(frozen=True)
 class EnsembleTrainingResult:
     models: list[TCNPredictor]
     validation_losses: list[float]
     signal_dates: list[pd.Timestamp]
     target_dates: list[pd.Timestamp]
+
+
+class SequenceTensorDataset(Dataset):
+    def __init__(self, bundle: SequenceDatasetBundle) -> None:
+        self.inputs = torch.tensor(bundle.inputs, dtype=torch.float32)
+        self.targets = torch.tensor(bundle.targets, dtype=torch.float32)
+
+    def __len__(self) -> int:
+        return int(self.inputs.shape[0])
+
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.inputs[index], self.targets[index]
 
 
 class TCNTrainer:
@@ -84,25 +90,60 @@ class TCNTrainer:
         val_data: SequenceDatasetBundle,
         seed: int,
     ) -> TrainedModelResult:
-        artifact = _train_model_core(
-            config=self.config,
-            train_inputs=train_data.inputs,
-            train_targets=train_data.targets,
-            val_inputs=val_data.inputs,
-            val_targets=val_data.targets,
-            seed=seed,
-        )
+        _set_random_seed(seed)
         model = self._instantiate_model(
             n_features=train_data.inputs.shape[-1],
             n_assets=train_data.inputs.shape[-2],
+        ).to(self.device)
+        optimizer = torch.optim.Adam(
+            model.parameters(),
+            lr=self.config.learning_rate,
+            weight_decay=self.config.weight_decay,
         )
-        model.load_state_dict(artifact.state_dict)
-        model = model.to(self.device)
+        train_loader = DataLoader(
+            SequenceTensorDataset(train_data),
+            batch_size=min(self.config.batch_size, max(len(train_data.signal_dates), 1)),
+            shuffle=False,
+        )
+        val_loader = DataLoader(
+            SequenceTensorDataset(val_data),
+            batch_size=min(self.config.batch_size, max(len(val_data.signal_dates), 1)),
+            shuffle=False,
+        )
+
+        best_state = _snapshot_state_dict(model)
+        best_validation_loss = float("inf")
+        epochs_without_improvement = 0
+        epochs_trained = 0
+
+        for epoch in range(self.config.max_epochs):
+            model.train()
+            for inputs, targets in train_loader:
+                inputs = inputs.to(self.device)
+                targets = targets.to(self.device)
+                optimizer.zero_grad(set_to_none=True)
+                predictions = model(inputs)
+                loss = model.loss(predictions, targets)
+                loss.backward()
+                optimizer.step()
+
+            validation_loss = self._evaluate(model, val_loader)
+            epochs_trained = epoch + 1
+            if validation_loss < (best_validation_loss - self.validation_improvement_tol):
+                best_validation_loss = validation_loss
+                best_state = _snapshot_state_dict(model)
+                epochs_without_improvement = 0
+            else:
+                epochs_without_improvement += 1
+                if epochs_without_improvement >= self.config.patience:
+                    break
+
+        model.load_state_dict(best_state)
         model.eval()
         return TrainedModelResult(
             model=model,
-            best_validation_loss=artifact.best_validation_loss,
-            epochs_trained=artifact.epochs_trained,
+            best_validation_loss=best_validation_loss,
+            epochs_trained=epochs_trained,
         )
 
     def train_ensemble(
@@ -122,17 +163,10 @@ class TCNTrainer:
 
         models: list[TCNPredictor] = []
         validation_losses: list[float] = []
-        artifacts = self._train_model_artifacts(train_bundle, val_bundle)
-        for artifact in artifacts:
-            model = self._instantiate_model(
-                n_features=train_bundle.inputs.shape[-1],
-                n_assets=train_bundle.inputs.shape[-2],
-            )
-            model.load_state_dict(artifact.state_dict)
-            model = model.to(self.device)
-            model.eval()
-            models.append(model)
-            validation_losses.append(artifact.best_validation_loss)
+        for seed in range(self.config.n_ensemble):
+            trained = self.train_single_model(train_bundle, val_bundle, seed=seed)
+            models.append(trained.model)
+            validation_losses.append(trained.best_validation_loss)
 
         return EnsembleTrainingResult(
             models=models,
@@ -168,14 +202,18 @@ class TCNTrainer:
     def _evaluate(
         self,
         model: TCNPredictor,
-        inputs: torch.Tensor,
-        targets: torch.Tensor,
+        loader: DataLoader,
     ) -> float:
         model.eval()
+        losses: list[float] = []
         with torch.no_grad():
-            predictions = model(inputs)
-            loss = model.loss(predictions, targets)
-        return float(loss.item())
+            for inputs, targets in loader:
+                predictions = model(inputs.to(self.device))
+                loss = model.loss(predictions, targets.to(self.device))
+                losses.append(float(loss.item()))
+        if not losses:
+            raise ValueError("Validation loader was empty; Phase 4 requires a non-empty validation split.")
+        return float(np.mean(losses))
 
     def _instantiate_model(self, n_features: int, n_assets: int) -> TCNPredictor:
         return TCNPredictor(
@@ -185,85 +223,6 @@ class TCNTrainer:
             n_blocks=self.config.n_blocks,
             dropout=self.config.dropout,
         )
-
-    def _train_model_artifacts(
-        self,
-        train_bundle: SequenceDatasetBundle,
-        val_bundle: SequenceDatasetBundle,
-    ) -> list[ModelTrainingArtifact]:
-        return [
-            _train_model_core(
-                config=self.config,
-                train_inputs=train_bundle.inputs,
-                train_targets=train_bundle.targets,
-                val_inputs=val_bundle.inputs,
-                val_targets=val_bundle.targets,
-                seed=seed,
-            )
-            for seed in range(self.config.n_ensemble)
-        ]
-
-
-def _train_model_core(
-    config: Phase4Config,
-    train_inputs: np.ndarray,
-    train_targets: np.ndarray,
-    val_inputs: np.ndarray,
-    val_targets: np.ndarray,
-    seed: int,
-) -> ModelTrainingArtifact:
-    _configure_torch_threads(1)
-    _set_random_seed(seed)
-    model = TCNPredictor(
-        n_features=train_inputs.shape[-1],
-        n_assets=train_inputs.shape[-2],
-        hidden_channels=config.hidden_channels,
-        n_blocks=config.n_blocks,
-        dropout=config.dropout,
-    )
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=config.learning_rate,
-        weight_decay=config.weight_decay,
-    )
-    train_inputs_tensor = torch.tensor(train_inputs, dtype=torch.float32)
-    train_targets_tensor = torch.tensor(train_targets, dtype=torch.float32)
-    val_inputs_tensor = torch.tensor(val_inputs, dtype=torch.float32)
-    val_targets_tensor = torch.tensor(val_targets, dtype=torch.float32)
-
-    best_state = _snapshot_state_dict(model)
-    best_validation_loss = float("inf")
-    epochs_without_improvement = 0
-    epochs_trained = 0
-
-    for epoch in range(config.max_epochs):
-        model.train()
-        optimizer.zero_grad(set_to_none=True)
-        predictions = model(train_inputs_tensor)
-        loss = model.loss(predictions, train_targets_tensor)
-        loss.backward()
-        optimizer.step()
-
-        model.eval()
-        with torch.no_grad():
-            validation_predictions = model(val_inputs_tensor)
-            validation_loss = float(model.loss(validation_predictions, val_targets_tensor).item())
-        epochs_trained = epoch + 1
-
-        if validation_loss < (best_validation_loss - 1e-4):
-            best_validation_loss = validation_loss
-            best_state = _snapshot_state_dict(model)
-            epochs_without_improvement = 0
-        else:
-            epochs_without_improvement += 1
-            if epochs_without_improvement >= config.patience:
-                break
-
-    return ModelTrainingArtifact(
-        state_dict=best_state,
-        best_validation_loss=best_validation_loss,
-        epochs_trained=epochs_trained,
-    )
 
 
 def _split_by_fraction(
@@ -330,15 +289,3 @@ def _snapshot_state_dict(model: TCNPredictor) -> dict[str, torch.Tensor]:
         key: value.detach().cpu().clone()
         for key, value in model.state_dict().items()
     }
-
-
-def _bundle_to_tensors(
-    bundle: SequenceDatasetBundle,
-    device: torch.device,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    if bundle.inputs.size == 0 or bundle.targets.size == 0:
-        raise ValueError("TCN training requires non-empty input and target tensors.")
-    return (
-        torch.tensor(bundle.inputs, dtype=torch.float32, device=device),
-        torch.tensor(bundle.targets, dtype=torch.float32, device=device),
-    )

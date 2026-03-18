@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 4: TDA Deferred
-- Active task: Remove redundant Phase 4 graph-history recomputation so the walk-forward training path can finish in a reasonable time
-- Next step: Re-run `train-tcn` on the de-duplicated Phase 4 context builder, then execute `run-phase4` and make the gate decision from measured metrics
+- Active task: Use the de-duplicated Phase 4 context builder with the restored mini-batch TCN trainer to get a practical end-to-end runtime
+- Next step: Re-run `train-tcn` on the corrected trainer path, then execute `run-phase4` and make the gate decision from measured metrics
 
 ## Tasks
 1. Set up data ingestion using yfinance
