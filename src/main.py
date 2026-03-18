@@ -11,7 +11,13 @@ from .diagnostics.regime_validation import validate_regime_detector
 from .learning.bayesian_optimizer import run_bayesian_update
 from .learning.learning_validation import validate_learning_loops
 from .learning.mistake_analyzer import run_mistake_analysis
-from .pipeline import initialize_database, run_phase1_pipeline, verify_phase1_gate
+from .pipeline import (
+    initialize_database,
+    run_daily_pipeline,
+    run_daily_summary,
+    run_phase1_pipeline,
+    verify_phase1_gate,
+)
 from .phase2 import run_phase2_pipeline, verify_phase2_gate
 from .phase3 import run_phase3_pipeline, verify_phase3_gate
 from .phase4 import run_phase4_pipeline, train_tcn_ensemble, verify_phase4_gate
@@ -45,6 +51,11 @@ def parse_args() -> argparse.Namespace:
     mistakes_parser.add_argument("--start", required=True, help="Start date in YYYY-MM-DD format.")
     mistakes_parser.add_argument("--end", required=True, help="End date in YYYY-MM-DD format.")
     subparsers.add_parser("validate-learning", help="Run the Phase 6 historical learning-loop validation.")
+    run_daily_parser = subparsers.add_parser("run-daily", help="Run the Phase 7 daily orchestration pipeline.")
+    run_daily_parser.add_argument("--date", help="Trading date in YYYY-MM-DD format. Defaults to the latest available date.")
+    run_daily_parser.add_argument("--mode", help="Override the configured broker mode for this run.")
+    run_daily_summary_parser = subparsers.add_parser("run-daily-summary", help="Print the latest Phase 7 daily summary.")
+    run_daily_summary_parser.add_argument("--mode", help="Override the configured broker mode for this run.")
     subparsers.add_parser("diagnose-monthly", help="Analyze the monthly P&L distribution for the current best Phase 2 run.")
     subparsers.add_parser("diagnose-assets", help="Analyze per-asset trade contribution for the latest Phase 2 run.")
     subparsers.add_parser("diagnose-fp", help="Analyze false positive regime flags for the latest Phase 3 run.")
@@ -174,6 +185,28 @@ def main() -> int:
         print(f"Report: {result.output_path}")
         return 0
 
+    if command == "run-daily":
+        result = run_daily_pipeline(config_path, date=args.date, mode=args.mode)
+        print("Phase 7 daily pipeline completed.")
+        print(f"Date: {result.date.date().isoformat()}")
+        print(f"Aborted: {result.aborted}")
+        print(f"Manual review: {result.manual_review}")
+        print(f"Allocations: {result.allocations}")
+        print(f"Approved orders: {len(result.approved_orders)}")
+        print(f"Rejected orders: {len(result.rejected_orders)}")
+        print(f"Fills: {len(result.fills)}")
+        print(f"Alerts: {len(result.alerts)}")
+        for key, value in result.daily_summary.items():
+            print(f"{key}: {value}")
+        return 0
+
+    if command == "run-daily-summary":
+        summary = run_daily_summary(config_path, mode=args.mode)
+        print("Phase 7 daily summary:")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+        return 0
+
     if command == "diagnose-monthly":
         result = diagnose_monthly_performance(config_path)
         print("Monthly diagnostics completed.")
@@ -276,6 +309,7 @@ def _resolve_config_path(config_path: str, command: str) -> str:
     phase4_commands = {"train-tcn", "run-phase4", "verify-phase4"}
     phase5_commands = {"run-trend-strategy", "run-phase5", "verify-phase5"}
     phase6_commands = {"run-bayesian-update", "analyze-mistakes", "validate-learning"}
+    phase7_commands = {"run-daily", "run-daily-summary"}
     if config_path == default_config and command in phase3_commands:
         phase3_config = Path("config/phase3.yaml")
         if phase3_config.exists():
@@ -292,6 +326,10 @@ def _resolve_config_path(config_path: str, command: str) -> str:
         phase6_config = Path("config/phase6.yaml")
         if phase6_config.exists():
             return str(phase6_config)
+    if config_path == default_config and command in phase7_commands:
+        phase7_config = Path("config/phase7.yaml")
+        if phase7_config.exists():
+            return str(phase7_config)
     return config_path
 
 

@@ -91,3 +91,6 @@ class MockBrokerClient:
         )
         return float(self._cash + market_value)
 
+    def set_market_prices(self, price_map: dict[str, float]) -> None:
+        for asset, price in price_map.items():
+            self._market_prices[str(asset)] = float(price)

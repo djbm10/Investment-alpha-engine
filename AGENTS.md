@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 7: Infrastructure Build In Progress
-- Active task: Build the mock broker and order-management layer on top of the new hard risk engine
-- Next step: Verify order generation, fills, and reconciliation, then build the daily pipeline orchestration
+- Active task: Build and verify the Phase 7 daily pipeline orchestration on top of the mock broker, order manager, and risk engine
+- Next step: Run the last-30-day historical simulation loop and validate that pipeline P&L stays aligned with the backtest
 
 ## Tasks
 1. Set up data ingestion using yfinance
