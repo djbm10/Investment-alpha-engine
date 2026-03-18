@@ -14,8 +14,8 @@ Build the algorithmic trading system described in docs/plan.md.
 
 ## Current Focus
 Phase 4: TDA Deferred
-- Active task: Phase 4 is blocked on walk-forward runtime; the current TCN implementation misses the under-30-minute execution target before gate metrics can be trusted operationally
-- Next step: Profile or redesign Phase 4 execution so the full walk-forward run completes in under 30 minutes, then rerun `run-phase4`, `verify-phase4`, and the monthly diagnostics
+- Active task: Phase 4 is deferred; the TCN overlay is disabled because it materially underperformed the cleared Phase 2 baseline
+- Next step: Proceed to Phase 5 using the Phase 2 cleared system as the active baseline
 
 ## Tasks
 1. Set up data ingestion using yfinance

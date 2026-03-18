@@ -77,7 +77,7 @@ phase2_sweep:
   density_floors: [0.30, 0.40, 0.50]
 
 phase4:
-  tcn_enabled: true
+  tcn_enabled: false
   hidden_channels: 32
   n_blocks: 3
   dropout: 0.2
