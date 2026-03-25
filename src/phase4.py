@@ -21,6 +21,7 @@ from .backtest import (
 from .config_loader import config_to_dict, load_config
 from .features import FeatureBuilder
 from .graph_engine import compute_daily_graph_matrices, compute_graph_signals
+from .storage import load_validated_price_data
 from .tcn_trainer import SequenceDatasetBundle, TCNTrainer
 
 
@@ -296,7 +297,7 @@ class Phase4Context:
 
 def _prepare_phase4_context(config) -> Phase4Context:
     graph_setup_start = time.time()
-    price_history = _load_validated_price_history(config.paths.processed_dir, config.tickers)
+    price_history = _load_validated_price_history(config)
     graph_matrices = compute_daily_graph_matrices(
         price_history.loc[:, ["date", "ticker", "adj_close"]],
         config.tickers,
@@ -359,13 +360,10 @@ def _build_walk_forward_windows(signal_dates: list[pd.Timestamp]) -> list[dict[s
     return windows
 
 
-def _load_validated_price_history(processed_dir: Path, tickers: list[str]) -> pd.DataFrame:
-    validated_path = processed_dir / "sector_etf_prices_validated.csv"
-    if not validated_path.exists():
-        raise ValueError(f"Validated price history was not found at '{validated_path}'.")
-    price_history = pd.read_csv(validated_path, parse_dates=["date"])
+def _load_validated_price_history(config) -> pd.DataFrame:
+    price_history = load_validated_price_data(config, dataset="sector")
     filtered = price_history.loc[
-        price_history["is_valid"] & price_history["ticker"].isin(tickers),
+        price_history["is_valid"] & price_history["ticker"].isin(config.tickers),
         ["date", "ticker", "adj_close", "volume"],
     ].copy()
     filtered["volume"] = filtered["volume"].fillna(0.0)
@@ -388,7 +386,7 @@ def _run_phase2_baseline_backtest(config) -> BacktestResult:
         baseline_config = load_config(baseline_runtime_path)
     finally:
         baseline_runtime_path.unlink(missing_ok=True)
-    price_history = _load_validated_price_history(baseline_config.paths.processed_dir, baseline_config.tickers)
+    price_history = _load_validated_price_history(baseline_config)
     daily_signals = compute_graph_signals(price_history.loc[:, ["date", "ticker", "adj_close"]], baseline_config.tickers, baseline_config.phase2)
     scaled_signals = scale_signals_to_risk_budget(daily_signals, baseline_config.phase2).scaled_signals
     return run_walk_forward_backtest(scaled_signals, baseline_config.phase2, run_id="phase4-phase2-baseline")

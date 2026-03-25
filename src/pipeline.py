@@ -27,7 +27,7 @@ from .performance_tracker import PerformanceTracker
 from .phase5 import _run_combined_backtest
 from .portfolio_allocator import DynamicAllocator
 from .risk_manager import RiskManager
-from .storage import ensure_output_directories, save_pipeline_outputs
+from .storage import ensure_output_directories, load_validated_price_data, save_pipeline_outputs
 from .trade_journal import TradeJournal
 from .trend_strategy import (
     backtest_trend_strategy,
@@ -581,10 +581,7 @@ class DailyPipeline:
         )
         combined_results, _ = _run_combined_backtest(self.config, strategy_a, strategy_b)
 
-        sector_prices = pd.read_csv(
-            self.config.paths.processed_dir / "sector_etf_prices_validated.csv",
-            parse_dates=["date"],
-        )
+        sector_prices = load_validated_price_data(self.config, dataset="sector", logger=self.logger)
         sector_prices = sector_prices.loc[
             sector_prices["is_valid"] & sector_prices["ticker"].isin(self.config.tickers),
             ["date", "ticker", "adj_close"],

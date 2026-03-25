@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from ..config_loader import load_config
+from ..storage import load_validated_price_data
 from .regime_validation import KNOWN_CRISIS_WINDOWS, CrisisWindow
 
 
@@ -23,19 +24,16 @@ def diagnose_regime_false_positives(config_path: str | Path) -> FalsePositiveDia
     processed_dir = config.paths.processed_dir
     summary_path = processed_dir / "phase3_summary.json"
     regimes_path = processed_dir / "phase3_regime_states.csv"
-    validated_path = processed_dir / "sector_etf_prices_validated.csv"
 
     if not summary_path.exists():
         raise ValueError(f"Phase 3 summary was not found at '{summary_path}'.")
     if not regimes_path.exists():
         raise ValueError(f"Phase 3 regime states were not found at '{regimes_path}'.")
-    if not validated_path.exists():
-        raise ValueError(f"Validated price history was not found at '{validated_path}'.")
 
     summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
     run_id = str(summary_payload.get("run_id", "unknown"))
     regime_history = pd.read_csv(regimes_path, parse_dates=["date"])
-    price_history = pd.read_csv(validated_path, parse_dates=["date"])
+    price_history = load_validated_price_data(config, dataset="sector")
     price_history = price_history.loc[
         price_history["is_valid"] & price_history["ticker"].isin(config.tickers),
         ["date", "ticker", "adj_close"],

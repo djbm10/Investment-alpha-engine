@@ -13,10 +13,10 @@ Build the algorithmic trading system described in docs/plan.md.
 - Continually update the `Current Focus` section whenever work progresses so it always shows the active task and next step.
 
 ## Current Focus
-Phase 7: Optional Database Fallback
-- Active task: make database usage optional so GitHub Actions paper-trading runs do not require PostgreSQL
-- Current step: `DISABLE_DB=true` fallbacks are implemented and verified for import, initialization, and geo access without PostgreSQL
-- Next step: rerun the GitHub Actions paper-trading workflow and fix any remaining command-specific DB assumptions only if they surface
+Phase 1: Empty-State Data Bootstrap Hardening
+- Active task: make validated market-data artifacts auto-generate when missing so fresh environments can run without manual setup
+- Current step: shared bootstrap fallbacks are implemented and verified for sector/trend validated price files, Phase 2 fallback loading, and Phase 7 date initialization
+- Next step: rerun workflow-specific paper-trading or diagnostics commands and patch additional missing-file assumptions only if they surface
 
 ## Tasks
 1. Set up data ingestion using yfinance

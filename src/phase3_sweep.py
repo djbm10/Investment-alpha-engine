@@ -26,7 +26,7 @@ from .phase3 import (
 
 def run_phase3_sweep(config_path: str | Path) -> dict[str, Path]:
     config = load_config(config_path)
-    price_history = _load_validated_price_history(config.paths.processed_dir, config.tickers)
+    price_history = _load_validated_price_history(config)
     baseline_metrics = _compute_phase2_baseline_metrics(config.paths.project_root / "config/phase2_cleared.yaml")
     rows: list[dict[str, object]] = []
 

@@ -12,6 +12,7 @@ import yaml
 from .config_loader import PipelineConfig, load_config
 from .deployment import DeploymentManager
 from .performance_tracker import PerformanceTracker
+from .storage import load_validated_price_data
 
 
 @dataclass(frozen=True)
@@ -142,12 +143,8 @@ def _load_state_records(state_path: Path) -> pd.DataFrame:
 
 
 def _expected_trading_dates(config: PipelineConfig, start_date: pd.Timestamp, end_date: pd.Timestamp) -> list[str]:
-    sector_path = config.paths.processed_dir / "sector_etf_prices_validated.csv"
-    trend_path = config.paths.processed_dir / "trend_universe_prices_validated.csv"
-    if not sector_path.exists() or not trend_path.exists():
-        return []
-    sector_dates = pd.read_csv(sector_path, usecols=["date"], parse_dates=["date"])["date"].drop_duplicates()
-    trend_dates = pd.read_csv(trend_path, usecols=["date"], parse_dates=["date"])["date"].drop_duplicates()
+    sector_dates = load_validated_price_data(config, dataset="sector").loc[:, ["date"]]["date"].drop_duplicates()
+    trend_dates = load_validated_price_data(config, dataset="trend").loc[:, ["date"]]["date"].drop_duplicates()
     intersection = sorted(set(sector_dates) & set(trend_dates))
     return [
         pd.Timestamp(value).date().isoformat()

@@ -11,7 +11,7 @@ from .config_loader import config_to_dict, load_config
 from .database import Phase2RunSummary, PostgresStore
 from .graph_engine import compute_graph_signals
 from .logging_utils import setup_logger
-from .storage import ensure_output_directories
+from .storage import ensure_output_directories, load_validated_price_data
 
 
 @dataclass(frozen=True)
@@ -39,7 +39,13 @@ def run_phase2_pipeline(config_path: str | Path) -> Phase2Result:
         store.ensure_phase2_schema()
         price_history = store.fetch_validated_price_history(config.tickers)
         if price_history.empty:
-            raise ValueError("No validated Phase 1 price history found in PostgreSQL.")
+            validated_prices = load_validated_price_data(config, dataset="sector", logger=logger)
+            price_history = validated_prices.loc[
+                validated_prices["is_valid"] & validated_prices["ticker"].isin(config.tickers),
+                ["date", "ticker", "adj_close"],
+            ].copy()
+        if price_history.empty:
+            raise ValueError("No validated Phase 1 price history was available after bootstrap.")
 
         logger.info(
             "Starting Phase 2 graph engine",

@@ -1,7 +1,14 @@
+import os
+
 import numpy as np
-from gtda.homology import VietorisRipsPersistence
-from persim import wasserstein
-from ripser import ripser
+import pytest
+
+if os.getenv("DISABLE_TDA") == "true":
+    pytest.skip("TDA disabled via DISABLE_TDA=true.", allow_module_level=True)
+
+VietorisRipsPersistence = pytest.importorskip("gtda.homology").VietorisRipsPersistence
+wasserstein = pytest.importorskip("persim").wasserstein
+ripser = pytest.importorskip("ripser").ripser
 
 
 def _random_distance_matrix(seed: int) -> np.ndarray:

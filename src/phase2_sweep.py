@@ -14,7 +14,7 @@ from .config_loader import Phase2Config, PipelineConfig, load_config
 from .database import PostgresStore
 from .graph_engine import compute_graph_signals
 from .logging_utils import setup_logger
-from .storage import ensure_output_directories
+from .storage import ensure_output_directories, load_validated_price_data
 
 
 @dataclass(frozen=True)
@@ -43,7 +43,13 @@ def run_phase2_sweep(config_path: str | Path) -> Phase2SweepResult:
         store.stop()
 
     if price_history.empty:
-        raise ValueError("No validated Phase 1 price history found in PostgreSQL.")
+        validated_prices = load_validated_price_data(config, dataset="sector", logger=logger)
+        price_history = validated_prices.loc[
+            validated_prices["is_valid"] & validated_prices["ticker"].isin(config.tickers),
+            ["date", "ticker", "adj_close"],
+        ].copy()
+    if price_history.empty:
+        raise ValueError("No validated Phase 1 price history was available after bootstrap.")
 
     logger.info(
         "Starting Phase 2 parameter sweep",

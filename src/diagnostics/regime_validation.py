@@ -7,7 +7,13 @@ import pandas as pd
 
 from ..config_loader import load_config
 from ..graph_engine import compute_daily_graph_matrices
-from ..tda_regime import RegimeObservation, RegimeState, TDARegimeDetector
+from ..storage import load_validated_price_data
+from ..tda_regime import (
+    RegimeObservation,
+    RegimeState,
+    TDARegimeDetector,
+    stable_regime_observations_from_price_history,
+)
 
 
 @dataclass(frozen=True)
@@ -48,12 +54,15 @@ KNOWN_CRISIS_WINDOWS = [
 
 def validate_regime_detector(config_path: str | Path) -> RegimeValidationResult:
     config = load_config(config_path)
-    price_history = _load_validated_price_history(config.paths.processed_dir, config.tickers)
-    graph_matrices = compute_daily_graph_matrices(price_history, config.tickers, config.phase3.rolling_window)
+    price_history = _load_validated_price_history(config)
     detector = TDARegimeDetector(config)
-    observations = detector.compute_daily_regime(
-        {date: snapshot.distance_matrix for date, snapshot in graph_matrices.items()}
-    )
+    if detector.enabled:
+        graph_matrices = compute_daily_graph_matrices(price_history, config.tickers, config.phase3.rolling_window)
+        observations = detector.compute_daily_regime(
+            {date: snapshot.distance_matrix for date, snapshot in graph_matrices.items()}
+        )
+    else:
+        observations = stable_regime_observations_from_price_history(price_history)
     records, hit_rate = evaluate_crisis_detection(observations, KNOWN_CRISIS_WINDOWS)
     false_positive_rate = compute_false_positive_rate(observations, KNOWN_CRISIS_WINDOWS)
 
@@ -162,14 +171,10 @@ def build_regime_validation_markdown(
     return "\n".join(lines) + "\n"
 
 
-def _load_validated_price_history(processed_dir: Path, tickers: list[str]) -> pd.DataFrame:
-    validated_path = processed_dir / "sector_etf_prices_validated.csv"
-    if not validated_path.exists():
-        raise ValueError(f"Validated price history was not found at '{validated_path}'.")
-
-    price_history = pd.read_csv(validated_path, parse_dates=["date"])
+def _load_validated_price_history(config) -> pd.DataFrame:
+    price_history = load_validated_price_data(config, dataset="sector")
     return price_history.loc[
-        price_history["is_valid"] & price_history["ticker"].isin(tickers),
+        price_history["is_valid"] & price_history["ticker"].isin(config.tickers),
         ["date", "ticker", "adj_close"],
     ].copy()
 

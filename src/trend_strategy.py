@@ -11,11 +11,9 @@ from .backtest import apply_phase2_geo_overlay, run_walk_forward_backtest, scale
 from .config_loader import PipelineConfig, load_config
 from .geo.storage import GeoStore
 from .graph_engine import compute_graph_signals
-from .ingestion import download_universe_data
 from .logging_utils import setup_logger
-from .storage import ensure_output_directories
+from .storage import load_validated_price_data
 from .trade_journal import TradeJournal
-from .validation import build_issue_report, build_quality_report, validate_prices
 
 
 @dataclass(frozen=True)
@@ -53,39 +51,7 @@ def run_trend_strategy_pipeline(config_path: str | Path) -> TrendStrategyResult:
 
 
 def load_or_fetch_trend_price_history(config: PipelineConfig) -> pd.DataFrame:
-    ensure_output_directories(config.paths)
-    validated_path = config.paths.processed_dir / "trend_universe_prices_validated.csv"
-    if validated_path.exists():
-        validated = pd.read_csv(validated_path, parse_dates=["date"])
-        available = sorted(validated["ticker"].unique().tolist())
-        if set(config.phase5.trend_tickers).issubset(available):
-            valid_rows = validated.loc[
-                validated["is_valid"] & validated["ticker"].isin(config.phase5.trend_tickers),
-                ["date", "ticker", "adj_close", "volume"],
-            ].copy()
-            valid_rows["volume"] = valid_rows["volume"].fillna(0.0)
-            return valid_rows.sort_values(["date", "ticker"]).reset_index(drop=True)
-
-    logger = setup_logger(config.paths.pipeline_log_file, task="trend-data", phase="phase5")
-    raw_prices = download_universe_data(
-        tickers=config.phase5.trend_tickers,
-        start_date=config.start_date,
-        end_date=config.end_date,
-        cache_dir=config.paths.cache_dir,
-        logger=logger,
-    )
-    validated = validate_prices(raw_prices, config.validation)
-    quality_report = build_quality_report(validated)
-    issue_report = build_issue_report(validated)
-
-    raw_path = config.paths.raw_dir / "trend_universe_prices_raw.csv"
-    quality_path = config.paths.processed_dir / "trend_universe_quality_report.csv"
-    issue_path = config.paths.processed_dir / "trend_universe_validation_issues.csv"
-    raw_prices.to_csv(raw_path, index=False)
-    validated.to_csv(validated_path, index=False)
-    quality_report.to_csv(quality_path, index=False)
-    issue_report.to_csv(issue_path, index=False)
-
+    validated = load_validated_price_data(config, dataset="trend")
     valid_rows = validated.loc[
         validated["is_valid"] & validated["ticker"].isin(config.phase5.trend_tickers),
         ["date", "ticker", "adj_close", "volume"],
@@ -100,10 +66,7 @@ def load_phase2_baseline_backtest(
     geo_store: GeoStore | None = None,
     geo_snapshot: pd.DataFrame | None = None,
 ) -> TrendStrategyBacktest:
-    validated_path = config.paths.processed_dir / "sector_etf_prices_validated.csv"
-    if not validated_path.exists():
-        raise ValueError(f"Validated Phase 2 price history was not found at '{validated_path}'.")
-    price_history = pd.read_csv(validated_path, parse_dates=["date"])
+    price_history = load_validated_price_data(config, dataset="sector")
     price_history = price_history.loc[
         price_history["is_valid"] & price_history["ticker"].isin(config.tickers),
         ["date", "ticker", "adj_close"],

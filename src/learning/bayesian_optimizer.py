@@ -11,6 +11,7 @@ import pandas as pd
 from ..backtest import run_walk_forward_backtest, scale_signals_to_risk_budget
 from ..config_loader import PipelineConfig, load_config
 from ..graph_engine import apply_signal_rules, compute_graph_signals
+from ..storage import load_validated_price_data
 from ..trade_journal import TradeJournal
 
 
@@ -150,8 +151,7 @@ class BayesianParameterOptimizer:
         if self._signals is not None:
             return self._signals
 
-        validated_path = self.config.paths.processed_dir / "sector_etf_prices_validated.csv"
-        price_history = pd.read_csv(validated_path, parse_dates=["date"])
+        price_history = load_validated_price_data(self.config, dataset="sector")
         filtered = price_history.loc[
             price_history["is_valid"] & price_history["ticker"].isin(self.config.tickers),
             ["date", "ticker", "adj_close"],

@@ -20,7 +20,8 @@ from .diagnostics.regime_validation import (
     evaluate_crisis_detection,
 )
 from .graph_engine import compute_daily_graph_matrices, compute_graph_signals
-from .tda_regime import RegimeState, TDARegimeDetector
+from .storage import load_validated_price_data
+from .tda_regime import RegimeState, TDARegimeDetector, stable_regime_observations_from_price_history
 
 
 @dataclass(frozen=True)
@@ -40,7 +41,7 @@ class Phase3VerificationResult:
 def run_phase3_pipeline(config_path: str | Path) -> Phase3Result:
     config = load_config(config_path)
     run_id = str(uuid4())
-    price_history = _load_validated_price_history(config.paths.processed_dir, config.tickers)
+    price_history = _load_validated_price_history(config)
     regime_observations = _compute_regime_observations(price_history, config)
     regime_states = {date: observation.state.value for date, observation in regime_observations.items()}
     freeze_dates = _build_freeze_dates(regime_observations, config.phase3)
@@ -118,8 +119,11 @@ def verify_phase3_gate(config_path: str | Path) -> Phase3VerificationResult:
 
 
 def _compute_regime_observations(price_history: pd.DataFrame, config) -> dict[pd.Timestamp, object]:
-    graph_matrices = compute_daily_graph_matrices(price_history, config.tickers, config.phase3.rolling_window)
     detector = TDARegimeDetector(config)
+    if not detector.enabled:
+        return stable_regime_observations_from_price_history(price_history)
+
+    graph_matrices = compute_daily_graph_matrices(price_history, config.tickers, config.phase3.rolling_window)
     return detector.compute_daily_regime({date: snapshot.distance_matrix for date, snapshot in graph_matrices.items()})
 
 
@@ -280,21 +284,17 @@ def _save_phase3_outputs(
     }
 
 
-def _load_validated_price_history(processed_dir: Path, tickers: list[str]) -> pd.DataFrame:
-    validated_path = processed_dir / "sector_etf_prices_validated.csv"
-    if not validated_path.exists():
-        raise ValueError(f"Validated price history was not found at '{validated_path}'.")
-
-    price_history = pd.read_csv(validated_path, parse_dates=["date"])
+def _load_validated_price_history(config) -> pd.DataFrame:
+    price_history = load_validated_price_data(config, dataset="sector")
     return price_history.loc[
-        price_history["is_valid"] & price_history["ticker"].isin(tickers),
+        price_history["is_valid"] & price_history["ticker"].isin(config.tickers),
         ["date", "ticker", "adj_close"],
     ].copy()
 
 
 def _compute_phase2_baseline_metrics(config_path: str | Path) -> dict[str, object]:
     baseline_config = load_config(config_path)
-    price_history = _load_validated_price_history(baseline_config.paths.processed_dir, baseline_config.tickers)
+    price_history = _load_validated_price_history(baseline_config)
     signals = compute_graph_signals(price_history, baseline_config.tickers, baseline_config.phase2)
     scaled_signals = scale_signals_to_risk_budget(signals, baseline_config.phase2).scaled_signals
     result = run_walk_forward_backtest(scaled_signals, baseline_config.phase2, run_id="phase2-cleared-baseline")
