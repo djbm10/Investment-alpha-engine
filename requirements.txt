@@ -6,3 +6,5 @@ yfinance
 persim
 torch
 psycopg[binary]
+ripser
+persim
