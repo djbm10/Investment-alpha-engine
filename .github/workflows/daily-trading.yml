@@ -39,3 +39,5 @@ jobs:
 
       - name: Run trading system
         run: python -m src.main run-daily --mode paper
+        env:
+          DISABLE_DB: "true"
