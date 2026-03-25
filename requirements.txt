@@ -117,7 +117,7 @@ sympy==1.14.0
 texttable==1.7.0
 threadpoolctl==3.6.0
 tomlkit==0.14.0
-torch==2.10.0+cpu
+torch
 traitlets==5.14.3
 trove-classifiers==2026.1.14.14
 typing_extensions==4.15.0
