@@ -5,7 +5,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .config_loader import Phase2Config, Phase3Config
+from .config_loader import GeoConfig, Phase2Config, Phase3Config
+from .geo.overlay import apply_geo_overlay
 from .graph_engine import apply_signal_rules
 from .trade_journal import TradeJournal
 
@@ -24,6 +25,43 @@ class RiskBudgetScalingResult:
     baseline_max_drawdown: float | None
     target_max_drawdown: float
     scale_factor: float
+
+
+def apply_phase2_geo_overlay(
+    daily_signals: pd.DataFrame,
+    phase2_config: Phase2Config,
+    geo_config: GeoConfig,
+    *,
+    geo_snapshot: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    if daily_signals.empty:
+        return daily_signals.copy()
+
+    overlay_enabled = bool(geo_config.enabled)
+    overlaid = apply_geo_overlay(
+        daily_signals,
+        geo_snapshot,
+        base_signal_threshold=phase2_config.signal_threshold,
+        enabled=overlay_enabled or geo_snapshot is not None,
+        gamma=geo_config.gamma,
+        hard_override_threshold=geo_config.hard_override_threshold,
+        min_mapping_confidence=geo_config.min_mapping_confidence,
+        min_coverage_score=geo_config.min_coverage_score,
+    )
+    adjusted = overlaid.copy()
+    if overlay_enabled:
+        adjusted["signal_direction"] = adjusted["final_signal_direction"].astype(int)
+        adjusted["target_position"] = adjusted["final_target_position"].astype(float)
+    else:
+        adjusted["signal_direction"] = pd.to_numeric(
+            daily_signals["signal_direction"], errors="coerce"
+        ).fillna(0.0).astype(int)
+        adjusted["target_position"] = pd.to_numeric(
+            daily_signals["target_position"], errors="coerce"
+        ).fillna(0.0)
+        adjusted["final_signal_direction"] = adjusted["signal_direction"]
+        adjusted["final_target_position"] = adjusted["target_position"]
+    return adjusted
 
 
 def apply_phase3_regime_overlay(
@@ -225,6 +263,10 @@ def run_walk_forward_backtest(
                     "entry_regime": str(entry_snapshot.get("graph_regime", "TRADEABLE")),
                     "entry_price": _optional_float(entry_snapshot.get("adj_close")),
                     "entry_predicted_residual": _optional_float(entry_snapshot.get("predicted_residual_mean")),
+                    "entry_geo_net_score": _optional_float(entry_snapshot.get("geo_net_score")),
+                    "entry_geo_structural_score": _optional_float(entry_snapshot.get("geo_structural_score")),
+                    "entry_contradiction": _optional_float(entry_snapshot.get("contradiction")),
+                    "entry_geo_break_risk": _optional_float(entry_snapshot.get("geo_break_risk")),
                     "entry_weight": desired_weight,
                     "portfolio_exposure_at_entry": float(gross_exposure),
                     "concurrent_positions": concurrent_positions,
@@ -432,6 +474,10 @@ def _close_trade_row(
         "net_pnl": net_return,
         "predicted_residual": predicted_residual,
         "actual_residual": actual_residual,
+        "entry_geo_net_score": _optional_float(state.get("entry_geo_net_score")),
+        "entry_geo_structural_score": _optional_float(state.get("entry_geo_structural_score")),
+        "entry_contradiction": _optional_float(state.get("entry_contradiction")),
+        "entry_geo_break_risk": _optional_float(state.get("entry_geo_break_risk")),
         "prediction_error": (
             None
             if predicted_residual is None or actual_residual is None
@@ -563,6 +609,17 @@ def _build_summary_metrics(
     profitable_month_fraction = (
         float(active_monthly_results["profitable"].mean()) if not active_monthly_results.empty else 0.0
     )
+    contradiction_trade_mask = (
+        trade_log["entry_contradiction"].fillna(0.0) > 0.0
+        if not trade_log.empty and "entry_contradiction" in trade_log.columns
+        else pd.Series(dtype=bool)
+    )
+    contradictory_trades = trade_log.loc[contradiction_trade_mask].copy() if not trade_log.empty else trade_log.copy()
+    contradiction_loss_rate = (
+        float((contradictory_trades["net_return"] < 0).mean())
+        if not contradictory_trades.empty
+        else 0.0
+    )
 
     gate_passed = (
         sharpe_ratio is not None
@@ -601,6 +658,8 @@ def _build_summary_metrics(
         "profitable_month_fraction": profitable_month_fraction,
         "out_of_sample_months": int(len(monthly_results)),
         "active_out_of_sample_months": int(len(active_monthly_results)),
+        "contradictory_trade_count": int(len(contradictory_trades)),
+        "contradiction_loss_rate": contradiction_loss_rate,
         "gate_passed": gate_passed,
     }
 

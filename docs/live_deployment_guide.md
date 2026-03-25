@@ -6,6 +6,13 @@ Phase 8 code is complete, but live trading is still gated behind:
 - A same-day manual live confirmation file.
 - Manual review that the Alpaca live account has sufficient capital.
 
+Current decision as of 2026-03-22:
+- The WorldMonitor-style geo overlay is research-only.
+- It failed the acceptance gate.
+- It is not approved for Batch 5 or live integration.
+- The follow-on geo regime-labeler experiment also failed to produce a valid integration path.
+- The live deployment path described here applies to the cleared core system, not this rejected overlay branch.
+
 The live path is designed so that deployment is a controlled configuration change, not a new engineering effort.
 
 ## 1. Confirm The Prerequisites
@@ -120,3 +127,9 @@ The Phase 8 gate is evaluated later, after:
 - Live deployment runs for the first 30 days without system errors.
 - Live tracking error versus paper remains below 3% annualized.
 - All risk limits function correctly in live mode.
+
+Geo overlay note:
+- The current WorldMonitor-style geo overlay failed its offline acceptance review and remains excluded from Batch 5 and live deployment.
+- The follow-on geo regime-labeler experiment found regime behavior differences but no useful policy improvement, and it is also excluded from Batch 5 and live deployment.
+- Keep the geo evaluation harness, but do not treat the current overlay formulas or current regime-labeler policy variants as deployment candidates.
+- Only revisit geo if the hypothesis changes materially and starts again from data or mapping research.

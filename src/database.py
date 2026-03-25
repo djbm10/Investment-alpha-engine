@@ -1,15 +1,33 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 import pandas as pd
-import psycopg
-from pgserver import initdb, pg_ctl
-from psycopg import sql
+
+_DISABLE_DB = os.getenv("DISABLE_DB") == "true"
+_DB_IMPORT_ERROR: Exception | None = None
+
+if not _DISABLE_DB:
+    try:
+        import psycopg
+        from pgserver import initdb, pg_ctl
+        from psycopg import sql
+    except Exception as exc:
+        psycopg = None
+        initdb = None
+        pg_ctl = None
+        sql = None
+        _DB_IMPORT_ERROR = exc
+else:
+    psycopg = None
+    initdb = None
+    pg_ctl = None
+    sql = None
 
 from .config_loader import DatabaseConfig, PathsConfig
 
@@ -187,6 +205,122 @@ PHASE2_SCHEMA_STATEMENTS = [
     """,
 ]
 
+GEO_SCHEMA_STATEMENTS = [
+    """
+    CREATE TABLE IF NOT EXISTS geo_event (
+        event_id TEXT PRIMARY KEY,
+        source_system TEXT NOT NULL,
+        source_endpoint TEXT NOT NULL,
+        source_record_id TEXT NOT NULL,
+        payload_sha256 CHAR(64) NOT NULL,
+        dedupe_group_id TEXT NOT NULL,
+        event_type TEXT NOT NULL CHECK (event_type IN ('SANCTION', 'CONFLICT_ESCALATION', 'INFRA_DISRUPTION', 'UNREST')),
+        event_subtype TEXT NOT NULL,
+        country_iso3 CHAR(3),
+        region_code TEXT,
+        latitude DOUBLE PRECISION,
+        longitude DOUBLE PRECISION,
+        occurred_at TIMESTAMPTZ,
+        published_at TIMESTAMPTZ,
+        first_seen_at TIMESTAMPTZ NOT NULL,
+        available_at TIMESTAMPTZ NOT NULL,
+        effective_start_at TIMESTAMPTZ NOT NULL,
+        severity_norm DOUBLE PRECISION NOT NULL CHECK (severity_norm >= 0.0 AND severity_norm <= 1.0),
+        confidence_norm DOUBLE PRECISION NOT NULL CHECK (confidence_norm >= 0.0 AND confidence_norm <= 1.0),
+        normalization_confidence DOUBLE PRECISION NOT NULL CHECK (normalization_confidence >= 0.0 AND normalization_confidence <= 1.0),
+        fatalities_estimate INTEGER CHECK (fatalities_estimate IS NULL OR fatalities_estimate >= 0),
+        infrastructure_class TEXT,
+        actor_1 TEXT,
+        actor_2 TEXT,
+        tags_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+        raw_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+        status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'RESOLVED', 'RETRACTED', 'DUPLICATE')),
+        normalization_version TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (source_system, source_record_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_geo_event_available_at ON geo_event (available_at)",
+    "CREATE INDEX IF NOT EXISTS idx_geo_event_occurred_at ON geo_event (occurred_at)",
+    "CREATE INDEX IF NOT EXISTS idx_geo_event_published_at ON geo_event (published_at)",
+    "CREATE INDEX IF NOT EXISTS idx_geo_event_country_iso3 ON geo_event (country_iso3)",
+    "CREATE INDEX IF NOT EXISTS idx_geo_event_region_available ON geo_event (region_code, available_at)",
+    "CREATE INDEX IF NOT EXISTS idx_geo_event_type_available ON geo_event (event_type, available_at)",
+    "CREATE INDEX IF NOT EXISTS idx_geo_event_dedupe_group ON geo_event (dedupe_group_id)",
+    "CREATE INDEX IF NOT EXISTS idx_geo_event_status ON geo_event (status)",
+    "CREATE INDEX IF NOT EXISTS idx_geo_event_tags_gin ON geo_event USING GIN (tags_json)",
+    """
+    CREATE TABLE IF NOT EXISTS geo_event_asset_impact (
+        event_id TEXT NOT NULL REFERENCES geo_event(event_id) ON DELETE CASCADE,
+        asset TEXT NOT NULL REFERENCES assets(ticker),
+        mapping_version TEXT NOT NULL,
+        impact_direction SMALLINT NOT NULL CHECK (impact_direction IN (-1, 0, 1)),
+        directness_score DOUBLE PRECISION NOT NULL CHECK (directness_score >= 0.0 AND directness_score <= 1.0),
+        region_exposure DOUBLE PRECISION NOT NULL CHECK (region_exposure >= 0.0 AND region_exposure <= 1.0),
+        sector_exposure DOUBLE PRECISION NOT NULL CHECK (sector_exposure >= 0.0 AND sector_exposure <= 1.0),
+        infra_exposure DOUBLE PRECISION NOT NULL CHECK (infra_exposure >= 0.0 AND infra_exposure <= 1.0),
+        mapping_confidence DOUBLE PRECISION NOT NULL CHECK (mapping_confidence >= 0.0 AND mapping_confidence <= 1.0),
+        impact_score DOUBLE PRECISION NOT NULL,
+        impact_components_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (event_id, asset)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_geo_event_asset_impact_event_id ON geo_event_asset_impact (event_id)",
+    "CREATE INDEX IF NOT EXISTS idx_geo_event_asset_impact_asset ON geo_event_asset_impact (asset)",
+    "CREATE INDEX IF NOT EXISTS idx_geo_event_asset_impact_direction ON geo_event_asset_impact (asset, impact_direction)",
+    "CREATE INDEX IF NOT EXISTS idx_geo_event_asset_impact_confidence ON geo_event_asset_impact (asset, mapping_confidence)",
+    """
+    CREATE TABLE IF NOT EXISTS geo_feature_snapshot (
+        trade_date DATE NOT NULL,
+        asset TEXT NOT NULL REFERENCES assets(ticker),
+        snapshot_cutoff_at TIMESTAMPTZ NOT NULL,
+        geo_net_raw DOUBLE PRECISION NOT NULL,
+        geo_net_score DOUBLE PRECISION NOT NULL CHECK (geo_net_score >= -1.0 AND geo_net_score <= 1.0),
+        geo_structural_score DOUBLE PRECISION NOT NULL CHECK (geo_structural_score >= -1.0 AND geo_structural_score <= 1.0),
+        geo_harm_score DOUBLE PRECISION NOT NULL CHECK (geo_harm_score >= 0.0 AND geo_harm_score <= 1.0),
+        geo_break_risk DOUBLE PRECISION NOT NULL CHECK (geo_break_risk >= 0.0 AND geo_break_risk <= 1.0),
+        geo_velocity_3d DOUBLE PRECISION NOT NULL,
+        geo_cluster_72h DOUBLE PRECISION NOT NULL CHECK (geo_cluster_72h >= 0.0),
+        region_stress DOUBLE PRECISION NOT NULL,
+        sector_disruption DOUBLE PRECISION NOT NULL,
+        infra_disruption DOUBLE PRECISION NOT NULL,
+        sanctions_score DOUBLE PRECISION NOT NULL,
+        avg_mapping_confidence DOUBLE PRECISION NOT NULL CHECK (avg_mapping_confidence >= 0.0 AND avg_mapping_confidence <= 1.0),
+        coverage_score DOUBLE PRECISION NOT NULL CHECK (coverage_score >= 0.0 AND coverage_score <= 1.0),
+        data_freshness_minutes INTEGER NOT NULL CHECK (data_freshness_minutes >= 0),
+        hard_override BOOLEAN NOT NULL,
+        contributing_event_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (trade_date, asset)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_geo_feature_snapshot_asset_date ON geo_feature_snapshot (asset, trade_date)",
+    "CREATE INDEX IF NOT EXISTS idx_geo_feature_snapshot_date ON geo_feature_snapshot (trade_date)",
+    "CREATE INDEX IF NOT EXISTS idx_geo_feature_snapshot_override ON geo_feature_snapshot (trade_date, hard_override)",
+    """
+    CREATE TABLE IF NOT EXISTS geo_data_health (
+        source_system TEXT NOT NULL,
+        source_endpoint TEXT NOT NULL,
+        checked_at TIMESTAMPTZ NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('HEALTHY', 'PARTIAL', 'STALE', 'FAILED')),
+        freshness_minutes INTEGER NOT NULL CHECK (freshness_minutes >= 0),
+        max_allowed_staleness_minutes INTEGER NOT NULL CHECK (max_allowed_staleness_minutes > 0),
+        records_seen_24h INTEGER NOT NULL CHECK (records_seen_24h >= 0),
+        expected_records_24h INTEGER NOT NULL CHECK (expected_records_24h >= 0),
+        coverage_score DOUBLE PRECISION NOT NULL CHECK (coverage_score >= 0.0 AND coverage_score <= 1.0),
+        last_success_at TIMESTAMPTZ,
+        error_message TEXT,
+        details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        PRIMARY KEY (source_system, source_endpoint, checked_at)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_geo_data_health_status_checked ON geo_data_health (status, checked_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_geo_data_health_last_success ON geo_data_health (last_success_at DESC)",
+]
+
 
 @dataclass(frozen=True)
 class DatabaseInitResult:
@@ -225,7 +359,157 @@ class Phase2RunArtifacts:
     daily_signals: pd.DataFrame
 
 
-class PostgresStore:
+class NoOpDatabase:
+    def __init__(self, config: DatabaseConfig, paths: PathsConfig, logger) -> None:
+        self.config = config
+        self.paths = paths
+        self.logger = logger
+        self.disabled = True
+
+    def initialize(self) -> DatabaseInitResult:
+        return DatabaseInitResult(dsn=self.dsn(self.config.database_name), timescaledb_enabled=False)
+
+    def stop(self) -> None:
+        return None
+
+    def dsn(self, database_name: str | None = None) -> str:
+        target_db = database_name or self.config.database_name
+        return f"disabled://{target_db}"
+
+    def persist_pipeline_run(
+        self,
+        *,
+        run_id: str,
+        source_name: str,
+        start_date: str,
+        end_date: str | None,
+        config_snapshot: dict[str, object],
+        raw_prices: pd.DataFrame,
+        validated_prices: pd.DataFrame,
+        quality_report: pd.DataFrame,
+        issue_report: pd.DataFrame,
+        started_at: datetime,
+        completed_at: datetime,
+    ) -> None:
+        return None
+
+    def verify_phase1_gate(self) -> DatabaseVerificationResult:
+        validated_path = self.paths.processed_dir / "sector_etf_prices_validated.csv"
+        quality_path = self.paths.processed_dir / "sector_etf_quality_report.csv"
+        validated_prices = pd.read_csv(validated_path, parse_dates=["date"]) if validated_path.exists() else pd.DataFrame()
+        quality_report = pd.read_csv(quality_path) if quality_path.exists() else pd.DataFrame()
+
+        earliest_trade_date = None
+        latest_trade_date = None
+        if not validated_prices.empty and "date" in validated_prices.columns:
+            earliest = pd.to_datetime(validated_prices["date"]).min()
+            latest = pd.to_datetime(validated_prices["date"]).max()
+            earliest_trade_date = earliest.date().isoformat() if pd.notna(earliest) else None
+            latest_trade_date = latest.date().isoformat() if pd.notna(latest) else None
+
+        distinct_tickers = 0
+        if "ticker" in validated_prices.columns:
+            distinct_tickers = int(validated_prices["ticker"].nunique())
+
+        return DatabaseVerificationResult(
+            daily_prices_row_count=int(len(validated_prices)),
+            distinct_tickers=distinct_tickers,
+            earliest_trade_date=earliest_trade_date,
+            latest_trade_date=latest_trade_date,
+            indexes_present=False,
+            quality_report_rows=int(len(quality_report)),
+        )
+
+    def ensure_phase2_schema(self) -> None:
+        return None
+
+    def ensure_geo_schema(self) -> None:
+        return None
+
+    def fetch_validated_price_history(self, tickers: list[str]) -> pd.DataFrame:
+        validated_path = self.paths.processed_dir / "sector_etf_prices_validated.csv"
+        if not validated_path.exists():
+            return pd.DataFrame(columns=["date", "ticker", "adj_close"])
+
+        prices = pd.read_csv(validated_path, parse_dates=["date"])
+        required_columns = {"date", "ticker", "adj_close"}
+        if not required_columns.issubset(prices.columns):
+            return pd.DataFrame(columns=["date", "ticker", "adj_close"])
+        if "is_valid" in prices.columns:
+            prices = prices.loc[prices["is_valid"]]
+        prices = prices.loc[prices["ticker"].isin(tickers), ["date", "ticker", "adj_close"]].copy()
+        return prices.sort_values(["date", "ticker"]).reset_index(drop=True)
+
+    def persist_phase2_run(
+        self,
+        *,
+        run_id: str,
+        config_snapshot: dict[str, object],
+        summary_metrics: dict[str, object],
+        daily_signals: pd.DataFrame,
+        trade_log: pd.DataFrame,
+        monthly_results: pd.DataFrame,
+        started_at: datetime,
+        completed_at: datetime,
+    ) -> None:
+        return None
+
+    def fetch_latest_phase2_run_summary(self) -> Phase2RunSummary | None:
+        summary_path = self.paths.processed_dir / "phase2_summary.json"
+        if not summary_path.exists():
+            return None
+
+        payload = json.loads(summary_path.read_text(encoding="utf-8"))
+        run_id = payload.get("run_id")
+        if run_id is None:
+            return None
+
+        return Phase2RunSummary(
+            run_id=str(run_id),
+            sharpe_ratio=_optional_float(payload.get("sharpe_ratio")),
+            max_drawdown=_optional_float(payload.get("max_drawdown")),
+            win_rate=_optional_float(payload.get("win_rate")),
+            profit_factor=_optional_float(payload.get("profit_factor")),
+            avg_holding_days=_optional_float(payload.get("avg_holding_days")),
+            annual_turnover=_optional_float(payload.get("annual_turnover")),
+            profitable_month_fraction=_optional_float(payload.get("profitable_month_fraction")),
+            out_of_sample_months=_optional_int(payload.get("out_of_sample_months")) or 0,
+            gate_passed=bool(payload.get("gate_passed", False)),
+        )
+
+    def fetch_phase2_run_artifacts(self, run_id: str) -> Phase2RunArtifacts:
+        summary_path = self.paths.processed_dir / "phase2_summary.json"
+        signals_path = self.paths.processed_dir / "phase2_daily_signals.csv"
+        payload: dict[str, object] = {}
+        stored_run_id = run_id
+
+        if summary_path.exists():
+            payload = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary_run_id = payload.get("run_id")
+            if summary_run_id is not None:
+                stored_run_id = str(summary_run_id)
+                if stored_run_id != run_id:
+                    raise ValueError(f"Phase 2 run '{run_id}' was not found.")
+
+        if not signals_path.exists():
+            raise ValueError(f"Phase 2 run '{run_id}' has no stored daily signals.")
+
+        daily_signals = pd.read_csv(signals_path, parse_dates=["date"])
+        if daily_signals.empty:
+            raise ValueError(f"Phase 2 run '{run_id}' has no stored daily signals.")
+
+        config_snapshot = payload.get("config_snapshot", {})
+        if not isinstance(config_snapshot, dict):
+            config_snapshot = {}
+
+        return Phase2RunArtifacts(
+            run_id=stored_run_id,
+            config_snapshot=config_snapshot,
+            daily_signals=daily_signals,
+        )
+
+
+class _PostgresStoreImpl:
     def __init__(self, config: DatabaseConfig, paths: PathsConfig, logger) -> None:
         self.config = config
         self.paths = paths
@@ -353,6 +637,13 @@ class PostgresStore:
             conn.autocommit = True
             with conn.cursor() as cur:
                 for statement in PHASE2_SCHEMA_STATEMENTS:
+                    cur.execute(statement)
+
+    def ensure_geo_schema(self) -> None:
+        with psycopg.connect(self.dsn(self.config.database_name)) as conn:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                for statement in GEO_SCHEMA_STATEMENTS:
                     cur.execute(statement)
 
     def fetch_validated_price_history(self, tickers: list[str]) -> pd.DataFrame:
@@ -956,6 +1247,12 @@ class PostgresStore:
                 for record in monthly_results.itertuples(index=False)
             ],
         )
+
+
+def PostgresStore(config: DatabaseConfig, paths: PathsConfig, logger) -> _PostgresStoreImpl | NoOpDatabase:
+    if _DISABLE_DB or _DB_IMPORT_ERROR is not None:
+        return NoOpDatabase(config, paths, logger)
+    return _PostgresStoreImpl(config, paths, logger)
 
 
 def _optional_float(value: Any) -> float | None:

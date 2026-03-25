@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
+import re
 
 import yaml
 
@@ -201,6 +202,39 @@ class DeploymentConfig:
 
 
 @dataclass(frozen=True)
+class GeoExposureFilesConfig:
+    region: Path
+    sector: Path
+    infra: Path
+    betas: Path
+
+
+@dataclass(frozen=True)
+class GeoHalfLivesConfig:
+    sanctions: int
+    conflict_escalation: int
+    infra_disruption: int
+    unrest: int
+
+
+@dataclass(frozen=True)
+class GeoConfig:
+    enabled: bool
+    optional_overlay: bool
+    state_path: Path
+    normalization_version: str
+    mapping_version: str
+    cutoff_time_et: str
+    gamma: float
+    lambda_g: float
+    hard_override_threshold: float
+    min_mapping_confidence: float
+    min_coverage_score: float
+    half_life_days: GeoHalfLivesConfig
+    exposure_files: GeoExposureFilesConfig
+
+
+@dataclass(frozen=True)
 class PipelineConfig:
     price_source: str
     tickers: list[str]
@@ -218,6 +252,7 @@ class PipelineConfig:
     learning: LearningConfig
     phase7: Phase7Config
     deployment: DeploymentConfig
+    geo: GeoConfig
 
 
 def load_config(config_path: str | Path) -> PipelineConfig:
@@ -288,6 +323,7 @@ def load_config(config_path: str | Path) -> PipelineConfig:
     learning = _load_learning_config(data.get("learning", {}))
     phase7 = _load_phase7_config(project_root, data.get("phase7", {}))
     deployment = _load_deployment_config(project_root, data.get("deployment", {}))
+    geo = _load_geo_config(project_root, data.get("geo", {}))
 
     return PipelineConfig(
         price_source=str(data["price_source"]),
@@ -306,6 +342,7 @@ def load_config(config_path: str | Path) -> PipelineConfig:
         learning=learning,
         phase7=phase7,
         deployment=deployment,
+        geo=geo,
     )
 
 
@@ -503,5 +540,42 @@ def _load_deployment_config(project_root: Path, data: dict[str, object]) -> Depl
             weeks_5_12=float(scaling_data.get("weeks_5_12", 0.50)),
             weeks_13_24=float(scaling_data.get("weeks_13_24", 0.75)),
             weeks_25_plus=float(scaling_data.get("weeks_25_plus", 1.00)),
+        ),
+    )
+
+
+def _load_geo_config(project_root: Path, data: dict[str, object]) -> GeoConfig:
+    exposure_data = data.get("exposure_files", {})
+    half_life_data = data.get("half_life_days", {})
+    cutoff_time_et = str(data.get("cutoff_time_et", "16:10"))
+    if not re.fullmatch(r"\d{2}:\d{2}", cutoff_time_et):
+        raise ValueError("geo.cutoff_time_et must match HH:MM format")
+    hour, minute = (int(value) for value in cutoff_time_et.split(":"))
+    if hour > 23 or minute > 59:
+        raise ValueError("geo.cutoff_time_et must match HH:MM format")
+
+    return GeoConfig(
+        enabled=bool(data.get("enabled", False)),
+        optional_overlay=bool(data.get("optional_overlay", True)),
+        state_path=_resolve_path(project_root, str(data.get("state_path", "data/processed/geo_freeze_state.json"))),
+        normalization_version=str(data.get("normalization_version", "geo_norm_v1")),
+        mapping_version=str(data.get("mapping_version", "geo_map_v1")),
+        cutoff_time_et=cutoff_time_et,
+        gamma=float(data.get("gamma", 0.75)),
+        lambda_g=float(data.get("lambda_g", 1.50)),
+        hard_override_threshold=float(data.get("hard_override_threshold", 0.80)),
+        min_mapping_confidence=float(data.get("min_mapping_confidence", 0.70)),
+        min_coverage_score=float(data.get("min_coverage_score", 0.70)),
+        half_life_days=GeoHalfLivesConfig(
+            sanctions=int(half_life_data.get("sanctions", 20)),
+            conflict_escalation=int(half_life_data.get("conflict_escalation", 10)),
+            infra_disruption=int(half_life_data.get("infra_disruption", 3)),
+            unrest=int(half_life_data.get("unrest", 2)),
+        ),
+        exposure_files=GeoExposureFilesConfig(
+            region=_resolve_path(project_root, str(exposure_data.get("region", "config/geo/asset_region_exposure.csv"))),
+            sector=_resolve_path(project_root, str(exposure_data.get("sector", "config/geo/asset_sector_exposure.csv"))),
+            infra=_resolve_path(project_root, str(exposure_data.get("infra", "config/geo/asset_infra_exposure.csv"))),
+            betas=_resolve_path(project_root, str(exposure_data.get("betas", "config/geo/event_betas.csv"))),
         ),
     )

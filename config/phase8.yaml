@@ -1,5 +1,5 @@
 clearance:
-  carried_forward_from_phase7: "2026-03-18"
+  carried_forward_from_phase7: null
   summary: "Phase 8 builds live deployment tooling, monitoring, and reporting on top of the Phase 7 paper-trading system."
 
 price_source: yfinance
@@ -168,3 +168,26 @@ deployment:
     weeks_5_12: 0.50
     weeks_13_24: 0.75
     weeks_25_plus: 1.00
+
+geo:
+  enabled: false
+  optional_overlay: true
+  state_path: data/processed/geo_freeze_state.json
+  normalization_version: geo_norm_v1
+  mapping_version: geo_map_v1
+  cutoff_time_et: "16:10"
+  gamma: 0.75
+  lambda_g: 1.50
+  hard_override_threshold: 0.80
+  min_mapping_confidence: 0.70
+  min_coverage_score: 0.70
+  half_life_days:
+    sanctions: 20
+    conflict_escalation: 10
+    infra_disruption: 3
+    unrest: 2
+  exposure_files:
+    region: config/geo/asset_region_exposure.csv
+    sector: config/geo/asset_sector_exposure.csv
+    infra: config/geo/asset_infra_exposure.csv
+    betas: config/geo/event_betas.csv

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -12,7 +13,8 @@ def ensure_output_directories(paths: PathsConfig) -> None:
     paths.processed_dir.mkdir(parents=True, exist_ok=True)
     paths.log_dir.mkdir(parents=True, exist_ok=True)
     paths.cache_dir.mkdir(parents=True, exist_ok=True)
-    paths.postgres_dir.mkdir(parents=True, exist_ok=True)
+    if os.getenv("DISABLE_DB") != "true":
+        paths.postgres_dir.mkdir(parents=True, exist_ok=True)
 
 
 def save_pipeline_outputs(

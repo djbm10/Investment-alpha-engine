@@ -258,6 +258,16 @@ class DailyPipeline:
         fills: list[dict[str, Any]] = []
         discrepancies: list[dict[str, Any]] = []
 
+        if self.mode in {"paper", "live"} and self.config.end_date is None:
+            try:
+                self._refresh_strategy_inputs()
+            except Exception as exc:
+                alerts.append(f"Market data refresh failed; continuing with cached inputs: {exc}")
+                self.logger.warning(
+                    "Phase 7 market data refresh failure",
+                    extra={"context": {"error": str(exc)}},
+                )
+
         trading_date = self._resolve_trading_date(date)
         halt_flag_path = self.config.paths.log_dir / "emergency_halt.flag"
         if halt_flag_path.exists():
@@ -287,8 +297,6 @@ class DailyPipeline:
                 learning_actions=[],
             )
             return self._finalize_result(result)
-        if any(record["date"] == trading_date.date().isoformat() for record in self.state["daily_records"]):
-            raise ValueError(f"Trading date {trading_date.date().isoformat()} already exists in the Phase 7 state.")
 
         try:
             self._mark_broker_to_market(trading_date)
@@ -621,6 +629,50 @@ class DailyPipeline:
         available_from_prices = set(self.price_matrix.dropna(how="all").index)
         self.available_dates = sorted(available_from_positions & available_from_prices)
 
+    def _refresh_strategy_inputs(self) -> None:
+        self._refresh_price_history(
+            tickers=self.config.tickers,
+            raw_path=self.config.paths.raw_dir / "sector_etf_prices_raw.csv",
+            validated_path=self.config.paths.processed_dir / "sector_etf_prices_validated.csv",
+            quality_path=self.config.paths.processed_dir / "sector_etf_quality_report.csv",
+            issue_path=self.config.paths.processed_dir / "sector_etf_validation_issues.csv",
+        )
+        self._refresh_price_history(
+            tickers=self.config.phase5.trend_tickers,
+            raw_path=self.config.paths.raw_dir / "trend_universe_prices_raw.csv",
+            validated_path=self.config.paths.processed_dir / "trend_universe_prices_validated.csv",
+            quality_path=self.config.paths.processed_dir / "trend_universe_quality_report.csv",
+            issue_path=self.config.paths.processed_dir / "trend_universe_validation_issues.csv",
+        )
+        self._load_strategy_context()
+
+    def _refresh_price_history(
+        self,
+        *,
+        tickers: list[str],
+        raw_path: Path,
+        validated_path: Path,
+        quality_path: Path,
+        issue_path: Path,
+    ) -> None:
+        raw_prices = download_universe_data(
+            tickers=tickers,
+            start_date=self.config.start_date,
+            end_date=self.config.end_date,
+            cache_dir=self.config.paths.cache_dir,
+            logger=self.logger,
+        )
+        validated_prices = validate_prices(raw_prices, self.config.validation)
+        quality_report = build_quality_report(validated_prices)
+        issue_report = build_issue_report(validated_prices)
+
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        validated_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_prices.to_csv(raw_path, index=False)
+        validated_prices.to_csv(validated_path, index=False)
+        quality_report.to_csv(quality_path, index=False)
+        issue_report.to_csv(issue_path, index=False)
+
     def _load_state(self) -> dict[str, Any]:
         if self.state_path.exists():
             state = json.loads(self.state_path.read_text(encoding="utf-8"))
@@ -639,16 +691,38 @@ class DailyPipeline:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.state_path.write_text(json.dumps(self.state, indent=2, default=str), encoding="utf-8")
 
+    def _latest_processed_date(self) -> pd.Timestamp | None:
+        if not self.state["daily_records"]:
+            return None
+        return max(pd.Timestamp(record["date"]) for record in self.state["daily_records"])
+
     def _resolve_trading_date(self, date: str | pd.Timestamp | None) -> pd.Timestamp:
         if not self.available_dates:
             raise ValueError("No overlapping Phase 5 execution dates are available.")
+        latest_processed = self._latest_processed_date()
+        processed_dates = {pd.Timestamp(record["date"]) for record in self.state["daily_records"]}
         if date is None:
-            return pd.Timestamp(self.available_dates[-1])
+            latest_available = pd.Timestamp(self.available_dates[-1])
+            if latest_processed is not None and latest_available <= latest_processed:
+                raise ValueError(
+                    "No new trading date is available for Phase 7. "
+                    f"Latest processed state date is {latest_processed.date().isoformat()} and "
+                    f"latest available market data date is {latest_available.date().isoformat()}."
+                )
+            return latest_available
         requested = pd.Timestamp(date)
         eligible = [value for value in self.available_dates if pd.Timestamp(value) <= requested]
         if not eligible:
             raise ValueError(f"No trading dates are available on or before {requested.date().isoformat()}.")
-        return pd.Timestamp(eligible[-1])
+        resolved = pd.Timestamp(eligible[-1])
+        if resolved in processed_dates:
+            raise ValueError(f"Trading date {resolved.date().isoformat()} already exists in the Phase 7 state.")
+        if latest_processed is not None and resolved < latest_processed:
+            raise ValueError(
+                f"Trading date {resolved.date().isoformat()} is older than the latest processed Phase 7 state "
+                f"date {latest_processed.date().isoformat()} and cannot be processed out of order."
+            )
+        return resolved
 
     def _mark_broker_to_market(self, trading_date: pd.Timestamp) -> None:
         price_map = self._price_map_for_date(trading_date)

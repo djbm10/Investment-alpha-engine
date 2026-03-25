@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+import yaml
+
 from src.config_loader import load_config
 
 
@@ -100,3 +103,57 @@ def test_load_phase8_config_reads_deployment_controls() -> None:
     assert config.deployment.live_confirmation_path.name == "live_confirmed.txt"
     assert config.deployment.scaling_schedule.weeks_1_4 == 0.25
     assert config.deployment.scaling_schedule.weeks_25_plus == 1.0
+
+
+def test_load_phase1_config_defaults_geo_when_missing() -> None:
+    config = load_config(Path("config/phase1.yaml"))
+
+    assert config.geo.enabled is False
+    assert config.geo.optional_overlay is True
+    assert config.geo.cutoff_time_et == "16:10"
+    assert config.geo.state_path.is_absolute()
+    assert config.geo.exposure_files.region.is_absolute()
+    assert config.geo.exposure_files.region.name == "asset_region_exposure.csv"
+    assert config.geo.half_life_days.sanctions == 20
+
+
+def test_load_phase7_config_reads_geo_section_and_resolves_absolute_paths() -> None:
+    config = load_config(Path("config/phase7.yaml"))
+
+    assert config.geo.enabled is False
+    assert config.geo.mapping_version == "geo_map_v1"
+    assert config.geo.cutoff_time_et == "16:10"
+    assert config.geo.state_path.is_absolute()
+    assert config.geo.state_path.name == "geo_freeze_state.json"
+    assert config.geo.exposure_files.region.is_absolute()
+    assert config.geo.exposure_files.sector.is_absolute()
+    assert config.geo.exposure_files.infra.is_absolute()
+    assert config.geo.exposure_files.betas.is_absolute()
+
+
+@pytest.mark.parametrize("invalid_cutoff", ["4:10", "16-10", "4:10 PM"])
+def test_load_config_rejects_invalid_geo_cutoff_format(tmp_path: Path, invalid_cutoff: str) -> None:
+    payload = yaml.safe_load(Path("config/phase1.yaml").read_text(encoding="utf-8"))
+    payload["geo"] = {
+        "enabled": False,
+        "cutoff_time_et": invalid_cutoff,
+    }
+    config_path = tmp_path / "phase1_invalid_geo.yaml"
+    config_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="cutoff_time_et"):
+        load_config(config_path)
+
+
+def test_load_config_accepts_valid_geo_cutoff_format(tmp_path: Path) -> None:
+    payload = yaml.safe_load(Path("config/phase1.yaml").read_text(encoding="utf-8"))
+    payload["geo"] = {
+        "enabled": False,
+        "cutoff_time_et": "04:10",
+    }
+    config_path = tmp_path / "phase1_valid_geo.yaml"
+    config_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    config = load_config(config_path)
+
+    assert config.geo.cutoff_time_et == "04:10"

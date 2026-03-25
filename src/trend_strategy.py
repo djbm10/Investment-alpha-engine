@@ -7,8 +7,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .backtest import run_walk_forward_backtest, scale_signals_to_risk_budget
+from .backtest import apply_phase2_geo_overlay, run_walk_forward_backtest, scale_signals_to_risk_budget
 from .config_loader import PipelineConfig, load_config
+from .geo.storage import GeoStore
 from .graph_engine import compute_graph_signals
 from .ingestion import download_universe_data
 from .logging_utils import setup_logger
@@ -24,6 +25,7 @@ class TrendStrategyBacktest:
     trade_log: pd.DataFrame
     monthly_results: pd.DataFrame
     summary_metrics: dict[str, object]
+    daily_signals: pd.DataFrame | None = None
 
 
 @dataclass(frozen=True)
@@ -95,6 +97,8 @@ def load_or_fetch_trend_price_history(config: PipelineConfig) -> pd.DataFrame:
 def load_phase2_baseline_backtest(
     config: PipelineConfig,
     trade_journal: TradeJournal | None = None,
+    geo_store: GeoStore | None = None,
+    geo_snapshot: pd.DataFrame | None = None,
 ) -> TrendStrategyBacktest:
     validated_path = config.paths.processed_dir / "sector_etf_prices_validated.csv"
     if not validated_path.exists():
@@ -104,8 +108,12 @@ def load_phase2_baseline_backtest(
         price_history["is_valid"] & price_history["ticker"].isin(config.tickers),
         ["date", "ticker", "adj_close"],
     ].copy()
-    daily_signals = compute_graph_signals(price_history, config.tickers, config.phase2)
-    scaled_signals = scale_signals_to_risk_budget(daily_signals, config.phase2).scaled_signals
+    scaled_signals = build_strategy_a_signal_history(
+        config=config,
+        price_history=price_history,
+        geo_store=geo_store,
+        geo_snapshot=geo_snapshot,
+    )
     backtest = run_walk_forward_backtest(
         scaled_signals,
         config.phase2,
@@ -119,7 +127,32 @@ def load_phase2_baseline_backtest(
         trade_log=backtest.trade_log.copy(),
         monthly_results=backtest.monthly_results.copy(),
         summary_metrics=dict(backtest.summary_metrics),
+        daily_signals=scaled_signals.copy(),
     )
+
+
+def build_strategy_a_signal_history(
+    *,
+    config: PipelineConfig,
+    price_history: pd.DataFrame,
+    geo_store: GeoStore | None = None,
+    geo_snapshot: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    daily_signals = compute_graph_signals(price_history, config.tickers, config.phase2)
+    active_geo_snapshot = geo_snapshot
+    if active_geo_snapshot is None and config.geo.enabled:
+        active_geo_snapshot = _load_geo_snapshot_for_signal_window(
+            config=config,
+            signal_dates=daily_signals["date"],
+            geo_store=geo_store,
+        )
+    overlaid_signals = apply_phase2_geo_overlay(
+        daily_signals,
+        config.phase2,
+        config.geo,
+        geo_snapshot=active_geo_snapshot,
+    )
+    return scale_signals_to_risk_budget(overlaid_signals, config.phase2).scaled_signals
 
 
 def backtest_trend_strategy(
@@ -192,7 +225,23 @@ def backtest_trend_strategy(
         trade_log=trade_log,
         monthly_results=monthly_results,
         summary_metrics=summary_metrics,
+        daily_signals=None,
     )
+
+
+def _load_geo_snapshot_for_signal_window(
+    *,
+    config: PipelineConfig,
+    signal_dates: pd.Series,
+    geo_store: GeoStore | None,
+) -> pd.DataFrame:
+    if signal_dates.empty or not config.geo.enabled:
+        return pd.DataFrame()
+
+    store = geo_store or GeoStore(config.database, config.paths, setup_logger(config.paths.pipeline_log_file, task="geo-history", phase="phase2"))
+    start_date = pd.to_datetime(signal_dates.min()).date()
+    end_date = pd.to_datetime(signal_dates.max()).date()
+    return store.fetch_feature_snapshot_range(start_date=start_date, end_date=end_date)
 
 
 def compute_trend_target_weights(

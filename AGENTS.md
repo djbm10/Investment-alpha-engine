@@ -13,10 +13,10 @@ Build the algorithmic trading system described in docs/plan.md.
 - Continually update the `Current Focus` section whenever work progresses so it always shows the active task and next step.
 
 ## Current Focus
-Phase 8: Code Complete
-- Phase 7 gate: PENDING (requires 90 consecutive calendar days of paper trading)
-- Phase 8 gate: PENDING (requires the Phase 7 gate plus the first 30 live trading days)
-- Current action: START PAPER TRADING with Alpaca paper credentials, monitor the daily health output, and accumulate the 90-day record for `verify-phase7-gate`
+Phase 7: Optional Database Fallback
+- Active task: make database usage optional so GitHub Actions paper-trading runs do not require PostgreSQL
+- Current step: `DISABLE_DB=true` fallbacks are implemented and verified for import, initialization, and geo access without PostgreSQL
+- Next step: rerun the GitHub Actions paper-trading workflow and fix any remaining command-specific DB assumptions only if they surface
 
 ## Tasks
 1. Set up data ingestion using yfinance

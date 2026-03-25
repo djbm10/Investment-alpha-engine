@@ -1,0 +1,50 @@
+name: Daily Paper Trade
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 20 * * 1-5'  # 20:30 UTC = 4:30 PM Eastern during EDT
+
+jobs:
+  run-paper-trade:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create credentials file
+        run: |
+          mkdir -p config
+          cat > config/credentials.yaml <<EOF
+          alpaca:
+            api_key: "${{ secrets.ALPACA_API_KEY }}"
+            api_secret: "${{ secrets.ALPACA_API_SECRET }}"
+            base_url: "https://paper-api.alpaca.markets"
+          EOF
+
+      - name: Ensure logs directory exists
+        run: mkdir -p logs
+
+      - name: Run daily paper trade
+        run: python -m src.main run-daily --mode paper
+
+      - name: Upload cron log artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trading-logs
+          path: |
+            logs/
+            diagnostics/
+            data/processed/

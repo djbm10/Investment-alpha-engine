@@ -56,7 +56,10 @@ def parse_args() -> argparse.Namespace:
     mistakes_parser.add_argument("--end", required=True, help="End date in YYYY-MM-DD format.")
     subparsers.add_parser("validate-learning", help="Run the Phase 6 historical learning-loop validation.")
     run_daily_parser = subparsers.add_parser("run-daily", help="Run the Phase 7 daily orchestration pipeline.")
-    run_daily_parser.add_argument("--date", help="Trading date in YYYY-MM-DD format. Defaults to the latest available date.")
+    run_daily_parser.add_argument(
+        "--date",
+        help="Trading date in YYYY-MM-DD format. Defaults to the latest available unprocessed date.",
+    )
     run_daily_parser.add_argument("--mode", help="Override the configured broker mode for this run.")
     run_daily_summary_parser = subparsers.add_parser("run-daily-summary", help="Print the latest Phase 7 daily summary.")
     run_daily_summary_parser.add_argument("--mode", help="Override the configured broker mode for this run.")

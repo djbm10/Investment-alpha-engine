@@ -1,12 +1,16 @@
+from dataclasses import replace
+from pathlib import Path
+
 import pandas as pd
 
 from src.backtest import (
+    apply_phase2_geo_overlay,
     apply_phase3_regime_overlay,
     apply_phase4_tcn_filter,
     run_walk_forward_backtest,
     scale_signals_to_risk_budget,
 )
-from src.config_loader import Phase2Config, Phase3Config
+from src.config_loader import GeoConfig, GeoExposureFilesConfig, GeoHalfLivesConfig, Phase2Config, Phase3Config
 
 
 def test_walk_forward_backtest_returns_summary_and_logs() -> None:
@@ -499,3 +503,236 @@ def test_apply_phase4_tcn_filter_vetoes_persistent_same_sign_predictions() -> No
     assert vetoed["target_position"] == 0.0
     assert bool(retained["tcn_veto"]) is False
     assert retained["target_position"] != 0.0
+
+
+def test_apply_phase2_geo_overlay_preserves_baseline_when_geo_disabled() -> None:
+    daily_signals = pd.DataFrame(
+        [
+            {
+                "date": pd.Timestamp("2024-01-02"),
+                "ticker": "XLK",
+                "zscore": -2.5,
+                "residual": -0.03,
+                "signal_direction": 1,
+                "target_position": 0.1,
+                "forward_return": 0.01,
+            },
+            {
+                "date": pd.Timestamp("2024-01-02"),
+                "ticker": "XLE",
+                "zscore": 2.2,
+                "residual": 0.02,
+                "signal_direction": -1,
+                "target_position": -0.1,
+                "forward_return": -0.01,
+            },
+        ]
+    )
+    geo_snapshot = pd.DataFrame(
+        [
+            {
+                "trade_date": pd.Timestamp("2024-01-02").date(),
+                "asset": "XLK",
+                "geo_net_score": -1.0,
+                "geo_structural_score": -1.0,
+                "avg_mapping_confidence": 1.0,
+                "coverage_score": 1.0,
+                "data_freshness_minutes": 0,
+            }
+        ]
+    )
+    config = Phase2Config(
+        lookback_window=60,
+        diffusion_alpha=0.05,
+        diffusion_steps=3,
+        sigma_scale=1.0,
+        min_weight=0.1,
+        zscore_lookback=60,
+        signal_threshold=1.5,
+        tier2_fraction=0.65,
+        tier2_size_fraction=0.5,
+        full_size_zscore=3.0,
+        max_position_size=0.2,
+        risk_budget_utilization=0.5,
+        max_drawdown_limit=0.20,
+        enforce_dollar_neutral=False,
+        max_holding_days=10,
+        stop_loss=0.05,
+        min_training_months=0,
+        annualization_days=252,
+        commission_bps=0.0,
+        bid_ask_bps=2.0,
+        market_impact_bps=2.0,
+        slippage_bps=1.0,
+    )
+    geo_config = GeoConfig(
+        enabled=False,
+        optional_overlay=True,
+        state_path=Path("data/processed/geo_freeze_state.json").resolve(),
+        normalization_version="geo_norm_v1",
+        mapping_version="geo_map_v1",
+        cutoff_time_et="16:10",
+        gamma=0.75,
+        lambda_g=1.5,
+        hard_override_threshold=0.8,
+        min_mapping_confidence=0.7,
+        min_coverage_score=0.7,
+        half_life_days=GeoHalfLivesConfig(20, 10, 3, 2),
+        exposure_files=GeoExposureFilesConfig(
+            region=Path("config/geo/asset_region_exposure.csv").resolve(),
+            sector=Path("config/geo/asset_sector_exposure.csv").resolve(),
+            infra=Path("config/geo/asset_infra_exposure.csv").resolve(),
+            betas=Path("config/geo/event_betas.csv").resolve(),
+        ),
+    )
+
+    overlaid = apply_phase2_geo_overlay(daily_signals, config, geo_config, geo_snapshot=geo_snapshot)
+    baseline_result = run_walk_forward_backtest(daily_signals, config, run_id="baseline-disabled-raw")
+    overlaid_result = run_walk_forward_backtest(overlaid, config, run_id="baseline-disabled-geo")
+
+    pd.testing.assert_series_equal(overlaid["target_position"], daily_signals["target_position"], check_names=False)
+    pd.testing.assert_series_equal(overlaid["signal_direction"], daily_signals["signal_direction"], check_names=False)
+    pd.testing.assert_frame_equal(
+        baseline_result.daily_results.reset_index(drop=True),
+        overlaid_result.daily_results.reset_index(drop=True),
+        check_dtype=False,
+    )
+
+
+def test_apply_phase2_geo_overlay_uses_trade_date_snapshot_and_reduces_contradiction_losses() -> None:
+    dates = pd.bdate_range("2024-01-02", periods=4)
+    daily_signals = pd.DataFrame(
+        [
+            {
+                "date": dates[0],
+                "ticker": "XLK",
+                "zscore": -2.8,
+                "residual": -0.03,
+                "signal_direction": 1,
+                "target_position": 0.1,
+                "forward_return": -0.04,
+            },
+            {
+                "date": dates[1],
+                "ticker": "XLK",
+                "zscore": -2.8,
+                "residual": -0.03,
+                "signal_direction": 1,
+                "target_position": 0.1,
+                "forward_return": -0.03,
+            },
+            {
+                "date": dates[2],
+                "ticker": "XLK",
+                "zscore": -2.8,
+                "residual": -0.03,
+                "signal_direction": 1,
+                "target_position": 0.1,
+                "forward_return": 0.02,
+            },
+            {
+                "date": dates[3],
+                "ticker": "XLK",
+                "zscore": 0.1,
+                "residual": 0.0,
+                "signal_direction": 0,
+                "target_position": 0.0,
+                "forward_return": 0.0,
+            },
+        ]
+    )
+    geo_snapshot = pd.DataFrame(
+        [
+            {
+                "trade_date": dates[0].date(),
+                "asset": "XLK",
+                "geo_net_score": -1.0,
+                "geo_structural_score": -1.0,
+                "avg_mapping_confidence": 0.95,
+                "coverage_score": 0.95,
+                "data_freshness_minutes": 30,
+            },
+            {
+                "trade_date": dates[1].date(),
+                "asset": "XLK",
+                "geo_net_score": -0.1,
+                "geo_structural_score": -0.1,
+                "avg_mapping_confidence": 0.95,
+                "coverage_score": 0.95,
+                "data_freshness_minutes": 30,
+            },
+            {
+                "trade_date": dates[2].date(),
+                "asset": "XLK",
+                "geo_net_score": 0.0,
+                "geo_structural_score": 0.0,
+                "avg_mapping_confidence": 0.95,
+                "coverage_score": 0.95,
+                "data_freshness_minutes": 30,
+            },
+        ]
+    )
+    config = Phase2Config(
+        lookback_window=60,
+        diffusion_alpha=0.05,
+        diffusion_steps=3,
+        sigma_scale=1.0,
+        min_weight=0.1,
+        zscore_lookback=60,
+        signal_threshold=1.5,
+        tier2_fraction=0.65,
+        tier2_size_fraction=0.5,
+        full_size_zscore=3.0,
+        max_position_size=0.2,
+        risk_budget_utilization=0.5,
+        max_drawdown_limit=0.20,
+        enforce_dollar_neutral=False,
+        max_holding_days=10,
+        stop_loss=0.50,
+        min_training_months=0,
+        annualization_days=252,
+        commission_bps=0.0,
+        bid_ask_bps=0.0,
+        market_impact_bps=0.0,
+        slippage_bps=0.0,
+    )
+    geo_config = GeoConfig(
+        enabled=True,
+        optional_overlay=True,
+        state_path=Path("data/processed/geo_freeze_state.json").resolve(),
+        normalization_version="geo_norm_v1",
+        mapping_version="geo_map_v1",
+        cutoff_time_et="16:10",
+        gamma=0.75,
+        lambda_g=1.5,
+        hard_override_threshold=0.8,
+        min_mapping_confidence=0.7,
+        min_coverage_score=0.7,
+        half_life_days=GeoHalfLivesConfig(20, 10, 3, 2),
+        exposure_files=GeoExposureFilesConfig(
+            region=Path("config/geo/asset_region_exposure.csv").resolve(),
+            sector=Path("config/geo/asset_sector_exposure.csv").resolve(),
+            infra=Path("config/geo/asset_infra_exposure.csv").resolve(),
+            betas=Path("config/geo/event_betas.csv").resolve(),
+        ),
+    )
+
+    disabled_geo_config = replace(geo_config, enabled=False)
+    baseline_signals = apply_phase2_geo_overlay(
+        daily_signals,
+        config,
+        disabled_geo_config,
+        geo_snapshot=geo_snapshot,
+    )
+    baseline_result = run_walk_forward_backtest(baseline_signals, config, run_id="baseline-geo")
+    overlaid_signals = apply_phase2_geo_overlay(daily_signals, config, geo_config, geo_snapshot=geo_snapshot)
+    overlaid_result = run_walk_forward_backtest(overlaid_signals, config, run_id="enabled-geo")
+
+    assert overlaid_signals.loc[overlaid_signals["date"] == dates[0], "target_position"].iloc[0] == 0.0
+    assert overlaid_signals.loc[overlaid_signals["date"] == dates[1], "target_position"].iloc[0] > 0.0
+    assert not overlaid_result.daily_results.equals(baseline_result.daily_results)
+    assert overlaid_result.summary_metrics["max_drawdown"] <= baseline_result.summary_metrics["max_drawdown"]
+    assert (
+        overlaid_result.summary_metrics["contradiction_loss_rate"]
+        <= baseline_result.summary_metrics["contradiction_loss_rate"]
+    )
