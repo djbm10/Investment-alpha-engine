@@ -8,3 +8,4 @@ torch
 psycopg[binary]
 ripser
 persim
+apscheduler
