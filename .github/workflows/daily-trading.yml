@@ -1,0 +1,39 @@
+name: Daily Trading
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 20 * * 1-5'  # 4:30 PM ET (UTC)
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Create credentials file
+        run: |
+          mkdir -p config
+          cat > config/credentials.yaml <<EOF
+          alpaca:
+            api_key: "${{ secrets.ALPACA_API_KEY }}"
+            api_secret: "${{ secrets.ALPACA_API_SECRET }}"
+            base_url: "https://paper-api.alpaca.markets"
+          EOF
+
+      - name: Create logs folder
+        run: mkdir -p logs
+
+      - name: Run trading system
+        run: python -m src.main run-daily --mode paper
