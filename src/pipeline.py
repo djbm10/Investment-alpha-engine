@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import traceback
+from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -206,6 +207,49 @@ class DailyPipelineResult:
     report_path: str | None = None
 
 
+# (A) Decision summary dataclass
+@dataclass
+class DecisionSummary:
+    timestamp: str
+    total_assets: int
+    signals_above_threshold: int
+    threshold: float
+    regime_state: str
+    regime_confidence: float
+    trades_generated: int
+    rejected_counts: dict[str, int]
+
+
+def _log_decision_summary(summary: DecisionSummary, log_dir: Path) -> None:
+    print("===== DAILY DECISION SUMMARY =====")
+    print(f"Signals > threshold: {summary.signals_above_threshold}/{summary.total_assets}")
+    print(f"Regime: {summary.regime_state} ({summary.regime_confidence:.2f})")
+    print(f"Trades generated: {summary.trades_generated}")
+    if summary.rejected_counts:
+        print("Rejections:")
+        for reason, count in sorted(summary.rejected_counts.items()):
+            print(f"  - {reason}: {count}")
+    print("=================================")
+
+    log_dir.mkdir(parents=True, exist_ok=True)
+    with open(log_dir / "decision_log.jsonl", "a", encoding="utf-8") as fh:
+        fh.write(
+            json.dumps(
+                {
+                    "timestamp": summary.timestamp,
+                    "total_assets": summary.total_assets,
+                    "signals_above_threshold": summary.signals_above_threshold,
+                    "threshold": summary.threshold,
+                    "regime_state": summary.regime_state,
+                    "regime_confidence": summary.regime_confidence,
+                    "trades_generated": summary.trades_generated,
+                    "rejected_counts": summary.rejected_counts,
+                }
+            )
+            + "\n"
+        )
+
+
 class DailyPipeline:
     def __init__(
         self,
@@ -257,6 +301,8 @@ class DailyPipeline:
         rejected_orders: list[dict[str, Any]] = []
         fills: list[dict[str, Any]] = []
         discrepancies: list[dict[str, Any]] = []
+        # (B) Central rejection tracker
+        rejections: defaultdict[str, int] = defaultdict(int)
 
         if self.mode in {"paper", "live"} and self.config.end_date is None:
             try:
@@ -320,6 +366,21 @@ class DailyPipeline:
                 capital_scale_factor=capital_scale_factor,
             )
             proposed_orders = self.order_manager.generate_orders(target_positions, current_positions)
+            # (C) Signal-level rejection tracking — inspect each strategy_a asset
+            for _ticker in self.config.tickers:
+                _snap = self._signal_snapshot(trading_date, _ticker)
+                if not _snap:
+                    rejections["below_threshold"] += 1
+                    continue
+                if not bool(_snap.get("allow_new_entries", True)):
+                    rejections["regime_block"] += 1
+                elif int(_snap.get("signal_direction", 0)) == 0:
+                    rejections["below_threshold"] += 1
+            # Strategy-level filters (kill_switch status)
+            if strategy_statuses.get("strategy_a") == "QUARANTINED":
+                rejections["high_uncertainty"] += len(self.config.tickers)
+            elif strategy_statuses.get("strategy_a") == "REDUCED":
+                rejections["low_utility"] += len(self.config.tickers)
         except Exception as exc:
             alerts.append(f"Pre-trade pipeline failure: {exc}")
             self.logger.error("Phase 7 pre-trade failure", extra={"context": {"traceback": traceback.format_exc()}})
@@ -358,6 +419,8 @@ class DailyPipeline:
                 weekly_pnl=weekly_pnl,
                 monthly_pnl=monthly_pnl,
             )
+            # (C) Risk-level rejection tracking
+            rejections["risk_block"] += len(rejected_orders)
             approved_lookup = {(_order_key(order)): order for order in proposed_orders}
             approved_order_list = [approved_lookup[_order_key_from_payload(payload)] for payload in approved_order_objs]
             approved_orders = [payload.copy() for payload in approved_order_objs]
@@ -535,6 +598,25 @@ class DailyPipeline:
             aborted=False,
             learning_actions=learning_actions,
         )
+        # (D) Emit decision summary
+        _first_snap = self._signal_snapshot(trading_date, self.config.tickers[0]) if self.config.tickers else {}
+        _threshold = float(self.config.phase2.signal_threshold)
+        _signals_above = sum(
+            1
+            for _t in self.config.tickers
+            if abs(float((self._signal_snapshot(trading_date, _t) or {}).get("zscore") or 0.0)) > _threshold
+        )
+        _decision_summary = DecisionSummary(
+            timestamp=trading_date.date().isoformat(),
+            total_assets=len(self.config.tickers),
+            signals_above_threshold=_signals_above,
+            threshold=_threshold,
+            regime_state=str(_first_snap.get("graph_regime", "UNKNOWN")),
+            regime_confidence=float(_first_snap.get("avg_pairwise_corr", 0.0)),
+            trades_generated=len(approved_orders),
+            rejected_counts=dict(rejections),
+        )
+        _log_decision_summary(_decision_summary, self.config.paths.project_root / "logs")
         return self._finalize_result(result)
 
     def run_daily_summary(self) -> dict[str, Any]:
