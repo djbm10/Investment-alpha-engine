@@ -218,19 +218,55 @@ class DecisionSummary:
     regime_confidence: float
     trades_generated: int
     rejected_counts: dict[str, int]
+    # z-score diagnostics
+    max_abs_z: float = 0.0
+    mean_abs_z: float = 0.0
+    z_std_dev: float = 0.0
+    signal_strength_ratio: float = 0.0
+    low_dispersion_flag: bool = False
+    top_z_scores: list[tuple[str, float]] = None  # type: ignore[assignment]
+    closest_to_threshold: list[tuple[str, float]] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.top_z_scores is None:
+            object.__setattr__(self, "top_z_scores", [])
+        if self.closest_to_threshold is None:
+            object.__setattr__(self, "closest_to_threshold", [])
 
 
 def _log_decision_summary(summary: DecisionSummary, log_dir: Path) -> None:
+    # (C) Extended print format
     print("===== DAILY DECISION SUMMARY =====")
     print(f"Signals > threshold: {summary.signals_above_threshold}/{summary.total_assets}")
     print(f"Regime: {summary.regime_state} ({summary.regime_confidence:.2f})")
     print(f"Trades generated: {summary.trades_generated}")
+    print("")
+    print("Z-score stats:")
+    print(f"  max |z|: {summary.max_abs_z:.4f}")
+    print(f"  mean |z|: {summary.mean_abs_z:.4f}")
+    print(f"  std z: {summary.z_std_dev:.4f}")
+    print("")
+    print("Signal diagnostics:")
+    print(f"  signal strength ratio: {summary.signal_strength_ratio:.4f}")
+    print(f"  low dispersion: {summary.low_dispersion_flag}")
+    if summary.top_z_scores:
+        print("")
+        print("Top signals:")
+        for asset, z in summary.top_z_scores:
+            print(f"  - {asset}: {z:.4f}")
+    if summary.closest_to_threshold:
+        print("")
+        print("Closest to threshold:")
+        for asset, abs_z in summary.closest_to_threshold:
+            print(f"  - {asset}: {abs_z:.4f}")
     if summary.rejected_counts:
+        print("")
         print("Rejections:")
         for reason, count in sorted(summary.rejected_counts.items()):
             print(f"  - {reason}: {count}")
     print("=================================")
 
+    # (D) Persist extended fields
     log_dir.mkdir(parents=True, exist_ok=True)
     with open(log_dir / "decision_log.jsonl", "a", encoding="utf-8") as fh:
         fh.write(
@@ -244,6 +280,13 @@ def _log_decision_summary(summary: DecisionSummary, log_dir: Path) -> None:
                     "regime_confidence": summary.regime_confidence,
                     "trades_generated": summary.trades_generated,
                     "rejected_counts": summary.rejected_counts,
+                    "max_abs_z": summary.max_abs_z,
+                    "mean_abs_z": summary.mean_abs_z,
+                    "z_std_dev": summary.z_std_dev,
+                    "signal_strength_ratio": summary.signal_strength_ratio,
+                    "low_dispersion_flag": summary.low_dispersion_flag,
+                    "top_z_scores": summary.top_z_scores,
+                    "closest_to_threshold": summary.closest_to_threshold,
                 }
             )
             + "\n"
@@ -601,11 +644,25 @@ class DailyPipeline:
         # (D) Emit decision summary
         _first_snap = self._signal_snapshot(trading_date, self.config.tickers[0]) if self.config.tickers else {}
         _threshold = float(self.config.phase2.signal_threshold)
-        _signals_above = sum(
-            1
-            for _t in self.config.tickers
-            if abs(float((self._signal_snapshot(trading_date, _t) or {}).get("zscore") or 0.0)) > _threshold
-        )
+        # (B) Collect per-asset z-scores for diagnostics
+        _z_pairs: list[tuple[str, float]] = []
+        for _t in self.config.tickers:
+            _s = self._signal_snapshot(trading_date, _t) or {}
+            _z_pairs.append((_t, float(_s.get("zscore") or 0.0)))
+        _abs_z_vals = [abs(z) for _, z in _z_pairs]
+        _max_abs_z = max(_abs_z_vals) if _abs_z_vals else 0.0
+        _mean_abs_z = sum(_abs_z_vals) / len(_abs_z_vals) if _abs_z_vals else 0.0
+        _z_vals = [z for _, z in _z_pairs]
+        _z_mean = sum(_z_vals) / len(_z_vals) if _z_vals else 0.0
+        _z_std_dev = (sum((z - _z_mean) ** 2 for z in _z_vals) / len(_z_vals)) ** 0.5 if _z_vals else 0.0
+        _signal_strength_ratio = _max_abs_z / _threshold if _threshold > 0 else 0.0
+        _low_dispersion_flag = _z_std_dev < 0.7
+        _top_z_scores = sorted(_z_pairs, key=lambda x: abs(x[1]), reverse=True)[:5]
+        _closest_to_threshold = sorted(
+            [(_t, abs(z)) for _t, z in _z_pairs],
+            key=lambda x: abs(x[1] - _threshold),
+        )[:5]
+        _signals_above = sum(1 for az in _abs_z_vals if az > _threshold)
         _decision_summary = DecisionSummary(
             timestamp=trading_date.date().isoformat(),
             total_assets=len(self.config.tickers),
@@ -615,6 +672,13 @@ class DailyPipeline:
             regime_confidence=float(_first_snap.get("avg_pairwise_corr", 0.0)),
             trades_generated=len(approved_orders),
             rejected_counts=dict(rejections),
+            max_abs_z=_max_abs_z,
+            mean_abs_z=_mean_abs_z,
+            z_std_dev=_z_std_dev,
+            signal_strength_ratio=_signal_strength_ratio,
+            low_dispersion_flag=_low_dispersion_flag,
+            top_z_scores=_top_z_scores,
+            closest_to_threshold=_closest_to_threshold,
         )
         _log_decision_summary(_decision_summary, self.config.paths.project_root / "logs")
         return self._finalize_result(result)
