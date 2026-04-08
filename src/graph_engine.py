@@ -89,7 +89,6 @@ def compute_graph_signals(
         correlation = snapshot.correlation_matrix
         avg_pairwise_corr = average_pairwise_correlation(correlation)
         node_avg_corr = node_average_correlations(correlation)
-        node_tradeable = node_tradeable_mask(correlation, config)
 
         distance = snapshot.distance_matrix
         sigma = _scaled_sigma(_estimate_sigma(distance), config.sigma_scale)
@@ -99,6 +98,7 @@ def compute_graph_signals(
         regime_threshold_multiplier, regime_position_scale, universe_allow_entries = regime_controls(
             regime_state
         )
+        node_tradeable = node_tradeable_mask(correlation, config, regime_state)
         laplacian = _normalized_laplacian(weights)
         expected_return = _apply_diffusion_filter(
             current_return,

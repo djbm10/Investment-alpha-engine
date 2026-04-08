@@ -50,6 +50,13 @@ def node_average_correlations(correlation: np.ndarray) -> np.ndarray:
     return row_sums / (correlation.shape[0] - 1)
 
 
-def node_tradeable_mask(correlation: np.ndarray, config: Phase2Config) -> np.ndarray:
+def node_tradeable_mask(
+    correlation: np.ndarray,
+    config: Phase2Config,
+    regime_state: str = TRADEABLE_REGIME,
+) -> np.ndarray:
     node_corr = node_average_correlations(correlation)
-    return node_corr >= config.node_corr_floor
+    floor = config.node_corr_floor
+    if regime_state == REDUCED_REGIME:
+        floor = floor * config.reduced_node_corr_multiplier
+    return node_corr >= floor

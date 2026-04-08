@@ -71,6 +71,7 @@ class Phase2Config:
     corr_floor: float = 0.30
     density_floor: float = 0.40
     node_corr_floor: float = 0.20
+    reduced_node_corr_multiplier: float = 0.75
 
 
 @dataclass(frozen=True)
