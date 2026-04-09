@@ -1,10 +1,11 @@
 # Project State
 
 ## Last Updated
-2026-04-08 (end of session)
+2026-04-08
 
 ## Current Focus
-Implementing RCA recommendations from zero-trade diagnostic session.
+Paper trading validation (Phase 7). Pipeline execution reliability is the blocking issue — 1/60
+trading days executed. Signal logic and parameters are validated and frozen.
 
 ## Active Branch
 `main`
@@ -31,9 +32,36 @@ The triple-gate (raised threshold × position scale × node block) is over-conse
 - ✅ **RCA-3**: `graph_density` field added to `DecisionSummary`, populated, printed, persisted.
 
 ## Next Steps
-All RCA tasks complete. Monitor next `run_daily()` output — XLE (node_avg_corr ~0.18) should now
-pass the REDUCED-regime effective floor of 0.15 and generate a short trade if z-score holds above
-effective threshold (~3.50).
+1. **Fix pipeline execution reliability** — paper trading shows 1/60 expected trading days executed.
+   Root cause is pipeline not running daily, not signal logic. This is the Phase 7 gate blocker.
+2. **Monitor next `run_daily()` output** — XLE (node_avg_corr ~0.18) should now pass the
+   REDUCED-regime effective floor of 0.15 and generate a short trade if z-score holds above
+   effective threshold (~3.50).
+3. **Do not change any signal parameters** — frozen at Phase 2 cleared values until 90 days of
+   clean paper trading data exists.
+
+## Deliberate Decisions — Do Not Revisit Without New Evidence
+
+### REDUCED regime threshold multiplier stays at 1.25× (decided 2026-04-08)
+**The gap:** Gameplan §3.3 specifies TRANSITIONING regime → 50% threshold widening. Code uses
+`REDUCED_THRESHOLD_MULTIPLIER = 1.25` (25% widening) in `correlation_filter.py`.
+
+**Why we are NOT fixing it:**
+1. The 1.25× value is part of the **Phase 2 cleared parameter set** (Sharpe 0.742, cleared 2026-03-17).
+   Changing it mid-paper-trading run would invalidate the paper trading as a live validation of that
+   cleared system.
+2. The gameplan's 1.50× is a suggested starting point, not a validated optimum. The actual
+   optimization already ran and landed at 1.25×.
+3. The backtest mistake analysis (57 losing trades) shows **72% are REVERSAL_OVERSHOOT** and
+   **16% TREND_REVERSAL** — neither is caused by weak-signal entries. A stricter entry threshold
+   does not address the actual loss drivers.
+4. Only 3.5% of losses are COST_KILLED, and the corrective action for those is already
+   per-asset z-score adjustment, not a universal regime multiplier.
+
+**When to revisit:** Only if a full paper trading period produces a new mistake category specifically
+tied to weak-signal entries in REDUCED regime. Do not change speculatively.
+
+**Code location:** `REDUCED_THRESHOLD_MULTIPLIER = 1.25` in `src/correlation_filter.py` line 11.
 
 ## Key Config Values
 - `node_corr_floor`: 0.20 (in `config/phase7.yaml` and `config/phase6.yaml`)
